@@ -1,0 +1,63 @@
+0:[sbp_diff<2] yes=1,no=2,missing=2,gain=140.905136,cover=8302.1748
+	1:[sbp_diff<-13] yes=3,no=4,missing=4,gain=166.114792,cover=4419.46289
+		3:[hb<14] yes=7,no=8,missing=8,gain=48.212986,cover=1264.69824
+			7:[physical_pca_1<2.0147965] yes=15,no=16,missing=16,gain=62.2314606,cover=667.231995
+				15:[plat<220] yes=31,no=32,missing=32,gain=75.7541809,cover=365.705536
+					31:leaf=-0.117930546,cover=74.3907928
+					32:leaf=-0.00486552529,cover=291.314758
+				16:[totalc_diff<5.01000023] yes=33,no=34,missing=34,gain=44.8318977,cover=301.526428
+					33:leaf=0.0394900665,cover=294.419678
+					34:leaf=-0.214687467,cover=7.10675526
+			8:[bio_pca_5<-1.85104799] yes=17,no=18,missing=18,gain=28.4261856,cover=597.466309
+				17:[bio_pca_4<-2.52376318] yes=35,no=36,missing=36,gain=21.4856262,cover=60.5992279
+					35:leaf=-0.225453258,cover=1.91804576
+					36:leaf=0.114664033,cover=58.6811829
+				18:[physical_pca_6<-0.870924473] yes=37,no=38,missing=38,gain=41.217762,cover=536.867065
+					37:leaf=-0.1345402,cover=14.5204811
+					38:leaf=0.0362667851,cover=522.346558
+		4:[bun<13.8000002] yes=9,no=10,missing=10,gain=130.565094,cover=3154.76489
+			9:[hb_diff<-0.899999976] yes=19,no=20,missing=20,gain=88.1634827,cover=1089.4585
+				19:[bmi<26.9279728] yes=39,no=40,missing=40,gain=53.4412651,cover=127.327301
+					39:leaf=0.0435100608,cover=118.319099
+					40:leaf=-0.209159359,cover=9.0082016
+				20:[sbp_diff<-4] yes=41,no=42,missing=42,gain=94.3694458,cover=962.131165
+					41:leaf=-0.0311916117,cover=474.922302
+					42:leaf=-0.0938333794,cover=487.208832
+			10:[bio_pca_4<-1.23581457] yes=21,no=22,missing=22,gain=125.537094,cover=2065.3064
+				21:[hdl_diff<-1] yes=43,no=44,missing=44,gain=38.2760239,cover=256.82254
+					43:leaf=-0.0599341877,cover=25.7767563
+					44:leaf=0.0685402825,cover=231.045776
+				22:[physical_pca_6<0.333159] yes=45,no=46,missing=46,gain=65.4167786,cover=1808.48376
+					45:leaf=-0.0321983658,cover=1224.79102
+					46:leaf=0.00848143175,cover=583.692749
+	2:[bmi<24.2011375] yes=5,no=6,missing=6,gain=61.5163345,cover=3882.71191
+		5:[life_pca_10<0.308408588] yes=11,no=12,missing=12,gain=75.3792877,cover=1673.30237
+			11:[htfdcst<12.5] yes=23,no=24,missing=24,gain=58.7617569,cover=1290.96191
+				23:[physical_pca_1<-2.82504964] yes=47,no=48,missing=48,gain=53.77845,cover=1217.224
+					47:leaf=0.0628519356,cover=205.17984
+					48:leaf=0.00670548622,cover=1012.04419
+				24:[life_pca_6<-2.57356477] yes=49,no=50,missing=50,gain=73.7901611,cover=73.7379074
+					49:leaf=0.119283989,cover=15.3567381
+					50:leaf=-0.127069533,cover=58.3811722
+			12:[bun<17] yes=25,no=26,missing=26,gain=60.1880455,cover=382.340424
+				25:[bio_pca_10<0.542494416] yes=51,no=52,missing=52,gain=47.7092705,cover=287.405853
+					51:leaf=-0.0389303453,cover=222.06398
+					52:leaf=0.0582804158,cover=65.3418732
+				26:[life_pca_3<3.14120984] yes=53,no=54,missing=54,gain=69.42276,cover=94.9345627
+					53:leaf=-0.135659888,cover=86.3326111
+					54:leaf=0.162244663,cover=8.60195446
+		6:[waist_avg<74] yes=13,no=14,missing=14,gain=41.9608917,cover=2209.40967
+			13:[bio_pca_8<0.656077981] yes=27,no=28,missing=28,gain=0.361816406,cover=11.1109257
+				27:[tchl<175] yes=55,no=56,missing=56,gain=0.0743198395,cover=7.73441362
+					55:leaf=-0.145853564,cover=3.32728767
+					56:leaf=-0.165652558,cover=4.40712595
+				28:[hdl_diff<2] yes=57,no=58,missing=58,gain=0.187134743,cover=3.37651229
+					57:leaf=-0.216396481,cover=1.95894611
+					58:leaf=-0.168695375,cover=1.41756618
+			14:[bun<9.10000038] yes=29,no=30,missing=30,gain=40.2989807,cover=2198.29883
+				29:[waist_avg<94.0999985] yes=59,no=60,missing=60,gain=43.0634232,cover=29.3339882
+					59:leaf=-0.188375548,cover=17.773571
+					60:leaf=0.0595753789,cover=11.5604162
+				30:[life_pca_2<-0.338770986] yes=61,no=62,missing=62,gain=38.9016876,cover=2168.96484
+					61:leaf=0.0187887307,cover=1540.77478
+					62:leaf=0.0483140983,cover=628.190002

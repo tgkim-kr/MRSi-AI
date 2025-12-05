@@ -1,0 +1,61 @@
+0:[crp_diff<0.289999992] yes=1,no=2,missing=2,gain=1265.86414,cover=9196.5332
+	1:[physical_pca_2<-0.778310537] yes=3,no=4,missing=4,gain=636.434631,cover=5775.98438
+		3:[bio_pca_3<-1.02147341] yes=7,no=8,missing=8,gain=138.404388,cover=1775.65503
+			7:[drink_diff:{0,1,3,4,6,8}] yes=16,no=15,missing=15,gain=68.256012,cover=694.108398
+				15:[v1_house:{0,2}] yes=32,no=31,missing=31,gain=36.9246216,cover=102.127144
+					31:leaf=0.142990217,cover=98.8817749
+					32:leaf=-0.199807867,cover=3.24537277
+				16:[sbp_diff<0.412481606] yes=33,no=34,missing=34,gain=65.7128448,cover=591.981262
+					33:leaf=0.00169137702,cover=229.433563
+					34:leaf=0.0700775087,cover=362.547668
+			8:[physical_pca_6<1.16428244] yes=17,no=18,missing=18,gain=90.1856232,cover=1081.54675
+				17:[crp<0.150000006] yes=35,no=36,missing=36,gain=83.1448441,cover=980.774414
+					35:leaf=-0.0860660449,cover=124.974525
+					36:leaf=0.00125227158,cover=855.799927
+				18:[rbc<4.07000017] yes=37,no=38,missing=38,gain=64.9382248,cover=100.772255
+					37:leaf=-0.0786369964,cover=18.7122784
+					38:leaf=0.127801955,cover=82.0599823
+		4:[crp_diff<-0.0599999987] yes=9,no=10,missing=10,gain=494.394897,cover=4000.32935
+			9:[wbc_diff<1] yes=19,no=20,missing=20,gain=144.907913,cover=1770.97034
+				19:[bio_pca_3<-1.79150653] yes=39,no=40,missing=40,gain=132.540985,cover=1429.00928
+					39:leaf=0.0422047935,cover=245.029816
+					40:leaf=-0.0385951512,cover=1183.97949
+				20:[crp<0.589999974] yes=41,no=42,missing=42,gain=190.055359,cover=341.96106
+					41:leaf=-0.14576073,cover=44.2035828
+					42:leaf=0.0764516816,cover=297.757477
+			10:[crp_diff<0.0199999996] yes=21,no=22,missing=22,gain=365.56958,cover=2229.35889
+				21:[hct_diff<-0.200000003] yes=43,no=44,missing=44,gain=244.260986,cover=1205.05493
+					43:leaf=-0.0522916429,cover=378.226074
+					44:leaf=-0.149308473,cover=826.828918
+				22:[bio_pca_6<-0.510966778] yes=45,no=46,missing=46,gain=142.934464,cover=1024.30396
+					45:leaf=0.0123468973,cover=367.411743
+					46:leaf=-0.0655390918,cover=656.892212
+	2:[physical_pca_2<-1.4003762] yes=5,no=6,missing=6,gain=247.520325,cover=3420.54883
+		5:[bio_pca_3<-1.43470824] yes=11,no=12,missing=12,gain=73.0402832,cover=945.990417
+			11:[life_pca_10<3.67917752] yes=23,no=24,missing=24,gain=24.84021,cover=327.608948
+				23:[medcst_diff<-10] yes=47,no=48,missing=48,gain=22.8407593,cover=325.360229
+					47:leaf=-0.204757124,cover=1.99392521
+					48:leaf=0.134739265,cover=323.366302
+				24:leaf=-0.200849175,cover=2.24872351
+			12:[income<600] yes=25,no=26,missing=26,gain=64.249054,cover=618.381409
+				25:[bio_pca_6<0.0184993315] yes=49,no=50,missing=50,gain=45.0699158,cover=602.912292
+					49:leaf=0.0942205414,cover=433.548309
+					50:leaf=0.0333872773,cover=169.363983
+				26:[creatinine_diff<0.219999999] yes=51,no=52,missing=52,gain=34.3643646,cover=15.4691458
+					51:leaf=-0.206022963,cover=12.2263985
+					52:leaf=0.160145983,cover=3.24274659
+		6:[bio_pca_2<1.05045438] yes=13,no=14,missing=14,gain=180.776428,cover=2474.55835
+			13:[sbp<124] yes=27,no=28,missing=28,gain=182.614883,cover=2079.75903
+				27:[crp_diff<0.730000019] yes=53,no=54,missing=54,gain=162.499588,cover=1218.77588
+					53:leaf=-0.0502898991,cover=475.376373
+					54:leaf=0.0245715324,cover=743.399536
+				28:[weight<45.2000008] yes=55,no=56,missing=56,gain=58.2730408,cover=860.983093
+					55:leaf=-0.0941775665,cover=25.237175
+					56:leaf=0.0600541644,cover=835.745911
+			14:[pa_diff:{1}] yes=30,no=29,missing=29,gain=47.1413269,cover=394.799347
+				29:[drink_diff:{1,2,5}] yes=58,no=57,missing=57,gain=42.8015747,cover=380.56485
+					57:leaf=0.106418543,cover=370.075562
+					58:leaf=-0.0984265804,cover=10.4893122
+				30:[bio_pca_3<-4.52723789] yes=59,no=60,missing=60,gain=45.5212402,cover=14.2344913
+					59:leaf=0.190051228,cover=4.23835373
+					60:leaf=-0.201026723,cover=9.99613762
