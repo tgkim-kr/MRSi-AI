@@ -219,19 +219,7 @@ result/
       │  └─ trees_txt/
       │     ├─ tree_0.txt
       │     └─ ...
-      ├─ LGBM/
-      │  ├─ ROC_curve.jpg
-      │  ├─ feature_importance.jpg
-      │  └─ shap_summary_plot.png
-      ├─ RF/
-      │  ├─ ROC_curve.jpg
-      │  └─ feature_importance.jpg
-      ├─ LR/
-      │  └─ ROC_curve.jpg
-      ├─ ANN/
-      │  └─ ROC_curve.jpg
-      └─ RNN/
-         └─ ROC_curve.jpg
+...
 ```
 
 You may also include a summary JSON file such as:
