@@ -82,9 +82,6 @@ To export decision trees from XGBoost / LightGBM as images, the **Graphviz** sys
   2. During installation, make sure “Add Graphviz to the system PATH” (or equivalent) is enabled.  
   3. Confirm installation:
 
-     ```bash
-     dot -V
-     ```
 
 ### 3.3. Python packages
 
