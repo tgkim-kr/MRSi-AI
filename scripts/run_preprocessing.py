@@ -15,10 +15,6 @@ def main():
 
     Usage example
     -------------
-    python scripts/run_preprocessing.py \
-        --sas-path data_cohort.sas7bdat \
-        --glu-path data_glucose.xlsx \
-        --output preprocessed_data.csv
 
     Alternative argument names are also supported:
     python scripts/run_preprocessing.py \
@@ -31,7 +27,6 @@ def main():
     )
 
     parser.add_argument(
-        "--sas-path",
         "--input-sas",
         dest="sas_path",
         type=str,
@@ -40,7 +35,6 @@ def main():
     )
 
     parser.add_argument(
-        "--glu-path",
         "--input-glucose",
         dest="glu_path",
         type=str,
@@ -49,7 +43,6 @@ def main():
     )
 
     parser.add_argument(
-        "--output",
         "--output-csv",
         dest="output",
         type=str,
