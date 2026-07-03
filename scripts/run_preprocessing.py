@@ -1,5 +1,5 @@
 import argparse
-from data_processing import preprocessing
+from data_processing import run_full_preprocessing
 
 
 def main():
