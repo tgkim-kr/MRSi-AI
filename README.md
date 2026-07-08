@@ -196,7 +196,6 @@ python scripts/run_preprocessing.py \
   --glucose-data input_data/glucose_data_example.xlsx \
   --output-csv outputs/preprocessed_data.csv
 ```
-## Example input data
 
 The `input_data/` directory contains synthetic example input files for testing the pipeline:
 
