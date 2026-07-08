@@ -192,8 +192,8 @@ The original data and detailed schema are not distributed with this repository.
 
 ```bash
 python scripts/run_preprocessing.py \
-  --cohort-data path/to/cohort_data_example.csv \
-  --glucose-data path/to/glucose_data_example.xlsx \
+  --cohort-data input_data/cohort_data_example.csv \
+  --glucose-data input_data/glucose_data_example.xlsx \
   --output-csv outputs/preprocessed_data.csv
 ```
 
