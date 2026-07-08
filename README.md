@@ -1,4 +1,4 @@
-# MRSi-AI
+# MRSi-AI (Multi-domain Risk Simulation-AI)
 
 This repository provides a machine learning framework for predicting **incident type 2 diabetes (T2D)** using longitudinal cohort data.  
 The framework jointly models:
