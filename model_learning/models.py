@@ -142,7 +142,7 @@ def _align_categorical_columns_for_boosting(
     cat_cols = [col for col in cat_cols if col != "__split__"]
 
     for col in cat_cols:
-        combined[col] = combined[col].astype("category")
+        combined[col] = combined[col].astype("object").astype("category")
 
     x_train_aligned = combined[combined["__split__"] == "train"].drop(columns=["__split__"])
     x_test_aligned = combined[combined["__split__"] == "test"].drop(columns=["__split__"])
