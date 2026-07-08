@@ -110,7 +110,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--sampling",
-        default="over",
+        default="none",
         choices=["none", "over"],
         help="Sampling strategy passed to data_split. Default: over.",
     )
