@@ -344,15 +344,6 @@ python scripts/run_training.py \
   --n-jobs 3
 ```
 
-To run only classical machine-learning models:
-
-```bash
-python scripts/run_training.py \
-  --input-csv result/preprocessed_data.csv \
-  --output-dir result \
-  --models LR RF XGB LGBM \
-  --n-jobs 3
-```
 
 ### 8.7. Additional training arguments
 
