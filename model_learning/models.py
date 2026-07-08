@@ -187,14 +187,14 @@ def LGBM(
     train_data = lgb.Dataset(x_train, label=y_train)
     test_data = lgb.Dataset(x_test, label=y_test, reference=train_data)
 
-    learning_rate_list = [0.01, 0.1]
-    max_depth_list = [5, 30]
-    num_leaves_list = [10, 100]
-    feature_fraction_list = [0.5, 0.9]
-    bagging_fraction_list = [0.5, 0.9]
-    num_iterations_list = [50, 200]
-    lambda_l1_list = [0, 0.1]
-    lambda_l2_list = [0, 0.1]
+    learning_rate_list = [0.01]#, 0.1
+    max_depth_list = [5]#, 30
+    num_leaves_list = [10]#, 100
+    feature_fraction_list = [0.5]#, 0.9
+    bagging_fraction_list = [0.5]#, 0.9
+    num_iterations_list = [50]#, 200
+    lambda_l1_list = [0]#, 0.1
+    lambda_l2_list = [0]#, 0.1
 
     param_list = []
     best_auc = -np.inf
@@ -374,13 +374,13 @@ def XGB(
 
     run_id = safe_filename(run_label)
 
-    learning_rate_list = [0.01, 0.1]
-    max_depth_list = [5, 30]
-    n_estimators_list = [10, 100]
-    colsample_bytree_list = [0.5, 1.0]
-    subsample_list = [0.5, 1.0]
-    reg_lambda_list = [0, 0.1]
-    reg_alpha_list = [0, 0.1]
+    learning_rate_list = [0.01]#, 0.1
+    max_depth_list = [5]#, 30
+    n_estimators_list = [10]#, 100
+    colsample_bytree_list = [0.5]#, 1.0
+    subsample_list = [0.5]#, 1.0
+    reg_lambda_list = [0]#, 0.1
+    reg_alpha_list = [0]#, 0.1
 
     param_list = []
     best_auc = -np.inf
@@ -551,8 +551,8 @@ def LR(
 
     x_train, x_test, x_validation = _one_hot_align(x_train, x_test, x_validation)
 
-    C_list = [0.001, 0.01, 0.1, 1.0, 10.0]
-    penalty_list = ["l1", "l2"]
+    C_list = [1.0]#, 0.001, 0.01, 0.1, 10.0
+    penalty_list = ["l1"]#, "l2"
 
     param_list = []
     best_auc = -np.inf
@@ -656,10 +656,10 @@ def RF(
 
     x_train, x_test, x_validation = _one_hot_align(x_train, x_test, x_validation)
 
-    n_estimators_list = [50, 100, 200]
-    max_depth_list = [5, 10, 30, None]
-    min_samples_split_list = [2, 5, 10]
-    min_samples_leaf_list = [1, 2, 5]
+    n_estimators_list = [50]#, 100, 200
+    max_depth_list = [5]#, 10, 30, None
+    min_samples_split_list = [2]#, 5, 10
+    min_samples_leaf_list = [1]#, 2, 5
 
     param_list = []
     best_auc = -np.inf
@@ -774,9 +774,9 @@ def ANN(
     y_test = np.asarray(y_test).astype("float32")
     y_validation = np.asarray(y_validation).astype("float32")
 
-    hidden_units_list = [64, 256]
-    hidden_layers_list = [1, 3]
-    learning_rate_list = [0.001, 0.01]
+    hidden_units_list = [64]#, 256
+    hidden_layers_list = [1]#, 3
+    learning_rate_list = [0.001]#, 0.01
     batch_size_list = [32]
 
     param_list = []
@@ -915,9 +915,9 @@ def RNN(
     y_test = np.asarray(y_test, dtype=np.float32)
     y_validation = np.asarray(y_validation, dtype=np.float32)
 
-    hidden_units_list = [32, 128]
-    hidden_layers_list = [1, 3]
-    learning_rate_list = [0.001, 0.01]
+    hidden_units_list = [32]#, 128
+    hidden_layers_list = [1]#, 3
+    learning_rate_list = [0.001]#, 0.01
     batch_size_list = [32]
 
     param_list = []
