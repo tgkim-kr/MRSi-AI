@@ -1,96 +1,191 @@
+from __future__ import annotations
+
 import os
 import pickle
-from typing import Dict, Any, Tuple, List
+import uuid
+from pathlib import Path
+from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import seaborn as sns
-import shap
-import lightgbm as lgb
-import xgboost as xgb
-from xgboost import to_graphviz
 from scipy import stats
-from sklearn.metrics import roc_auc_score, roc_curve
-from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Dropout, SimpleRNN
-from tensorflow.keras.optimizers import Adam
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import roc_auc_score
+import seaborn as sns
 
-from .utils import find_best_cutoff
-
-
-# -------------------------------------------------------------------
-# Helper: ROC curve plotter
-# -------------------------------------------------------------------
-def _plot_and_save_roc(
-    y_true,
-    y_prob,
-    save_path: str,
-    title: str = "Receiver Operating Characteristic (ROC)",
-) -> float:
-    """
-    Plot ROC curve and save it, returning the AUC.
-    """
-    fpr, tpr, _ = roc_curve(y_true, y_prob)
-    auc_val = float(roc_auc_score(y_true, y_prob))
-
-    plt.figure()
-    plt.plot(fpr, tpr, "r--", label=f"Validation AUC = {auc_val:.4f}")
-    plt.plot([0, 1], [0, 1], "k--")
-    plt.xlim([0, 1])
-    plt.ylim([0, 1])
-    plt.xlabel("False Positive Rate")
-    plt.ylabel("True Positive Rate")
-    plt.title(title)
-    plt.legend(loc="lower right")
-    plt.savefig(save_path, dpi=500)
-    plt.close()
-
-    return auc_val
+from .utils import ensure_dir, find_best_cutoff, safe_filename, save_roc_curve
 
 
-# -------------------------------------------------------------------
-# LightGBM
-# -------------------------------------------------------------------
-def _extract_lgbm_importance(final_model, x_train: pd.DataFrame) -> Dict[str, float]:
-    """
-    Extract feature importance from a trained LightGBM model.
-    """
-    feature_importance = final_model.feature_importance()
-    features = x_train.columns
-    importance_dict = {
-        feature: float(importance)
-        for feature, importance in zip(features, feature_importance)
-    }
-    return importance_dict
+def _require_lightgbm():
+    try:
+        import lightgbm as lgb
+    except ImportError as exc:
+        raise ImportError(
+            "LightGBM is required for the LGBM model. "
+            "Install it with `pip install lightgbm` or remove LGBM from the model list."
+        ) from exc
+
+    return lgb
 
 
-def train_lgbm_model(
+def _require_xgboost():
+    try:
+        import xgboost as xgb
+    except ImportError as exc:
+        raise ImportError(
+            "XGBoost is required for the XGB model. "
+            "Install it with `pip install xgboost` or remove XGB from the model list."
+        ) from exc
+
+    return xgb
+
+
+def _require_shap():
+    try:
+        import shap
+    except ImportError as exc:
+        raise ImportError(
+            "SHAP is required to generate SHAP summary plots. "
+            "Install it with `pip install shap` or call the model with `make_shap=False`."
+        ) from exc
+
+    return shap
+
+
+def _require_tensorflow():
+    try:
+        from tensorflow.keras.layers import Dense, Dropout, Input, SimpleRNN
+        from tensorflow.keras.models import Sequential
+        from tensorflow.keras.optimizers import Adam
+        import tensorflow as tf
+    except ImportError as exc:
+        raise ImportError(
+            "TensorFlow is required for ANN/RNN models. "
+            "Install it with `pip install tensorflow` or remove ANN/RNN from the model list."
+        ) from exc
+
+    return tf, Sequential, Input, Dense, Dropout, SimpleRNN, Adam
+
+
+def _one_hot_align(
     x_train: pd.DataFrame,
-    y_train: pd.Series,
     x_test: pd.DataFrame,
-    y_test: pd.Series,
-    x_val: pd.DataFrame,
-    y_val: pd.Series,
-    features_tag: str,
-    pca_tag: str,
-    output_root: str = "result",
-) -> Tuple[float, float, Dict[str, Any]]:
+    x_validation: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
-    Train a LightGBM model with a grid search similar to the original script
-    and save model artifacts (ROC, feature importance, SHAP, tree image).
+    One-hot encode categorical columns using a combined column space.
     """
-    y_train = y_train.astype(int)
-    y_test = y_test.astype(int)
-    y_val = y_val.astype(int)
+    combined = pd.concat(
+        [
+            x_train.copy().assign(__split__="train"),
+            x_test.copy().assign(__split__="test"),
+            x_validation.copy().assign(__split__="validation"),
+        ],
+        axis=0,
+    )
 
-    base_dir = os.path.join(output_root, features_tag, pca_tag, "LGBM")
-    os.makedirs(base_dir, exist_ok=True)
+    cat_cols = combined.select_dtypes(
+        include=["category", "object", "string"]
+    ).columns.tolist()
+    cat_cols = [col for col in cat_cols if col != "__split__"]
+
+    combined = pd.get_dummies(
+        combined,
+        columns=cat_cols,
+        dummy_na=True,
+    )
+
+    x_train_encoded = (
+        combined[combined["__split__"] == "train"]
+        .drop(columns=["__split__"])
+        .astype("float32")
+    )
+    x_test_encoded = (
+        combined[combined["__split__"] == "test"]
+        .drop(columns=["__split__"])
+        .astype("float32")
+    )
+    x_validation_encoded = (
+        combined[combined["__split__"] == "validation"]
+        .drop(columns=["__split__"])
+        .astype("float32")
+    )
+
+    return x_train_encoded, x_test_encoded, x_validation_encoded
+
+
+def _align_categorical_columns_for_boosting(
+    x_train: pd.DataFrame,
+    x_test: pd.DataFrame,
+    x_validation: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """
+    Align category levels across train/test/validation for categorical boosting.
+
+    XGBoost and LightGBM can use pandas category dtype, but category columns
+    should have consistent categories across splits.
+    """
+    combined = pd.concat(
+        [
+            x_train.copy().assign(__split__="train"),
+            x_test.copy().assign(__split__="test"),
+            x_validation.copy().assign(__split__="validation"),
+        ],
+        axis=0,
+    )
+
+    cat_cols = combined.select_dtypes(
+        include=["category", "object", "string"]
+    ).columns.tolist()
+    cat_cols = [col for col in cat_cols if col != "__split__"]
+
+    for col in cat_cols:
+        combined[col] = combined[col].astype("category")
+
+    x_train_aligned = combined[combined["__split__"] == "train"].drop(columns=["__split__"])
+    x_test_aligned = combined[combined["__split__"] == "test"].drop(columns=["__split__"])
+    x_validation_aligned = combined[combined["__split__"] == "validation"].drop(columns=["__split__"])
+
+    return x_train_aligned, x_test_aligned, x_validation_aligned
+
+
+def _extract_lgbm_feature_importance(final_model: Any, x_train: pd.DataFrame) -> dict[str, float]:
+    feature_importance = final_model.feature_importance()
+    return {
+        feature: float(importance)
+        for feature, importance in zip(x_train.columns, feature_importance)
+    }
+
+
+def LGBM(
+    x_train,
+    y_train,
+    x_test,
+    y_test,
+    x_validation,
+    y_validation,
+    *,
+    save_dir,
+    random_state=123,
+    make_plots=True,
+    make_shap=True,
+):
+    """
+    Train and evaluate a LightGBM classifier using a small manual grid search.
+    """
+    lgb = _require_lightgbm()
+    save_dir = ensure_dir(save_dir)
+
+    x_train, x_test, x_validation = _align_categorical_columns_for_boosting(
+        x_train,
+        x_test,
+        x_validation,
+    )
 
     train_data = lgb.Dataset(x_train, label=y_train)
-    test_data = lgb.Dataset(x_test, label=y_test)
+    test_data = lgb.Dataset(x_test, label=y_test, reference=train_data)
 
     learning_rate_list = [0.01, 0.1]
     max_depth_list = [5, 30]
@@ -98,25 +193,13 @@ def train_lgbm_model(
     feature_fraction_list = [0.5, 0.9]
     bagging_fraction_list = [0.5, 0.9]
     num_iterations_list = [50, 200]
-    lambda_l1_list = [0.0, 0.1]
-    lambda_l2_list = [0.0, 0.1]
+    lambda_l1_list = [0, 0.1]
+    lambda_l2_list = [0, 0.1]
 
-    param_list = pd.DataFrame(
-        columns=[
-            "learning_rate",
-            "max_depth",
-            "num_leaves",
-            "feature_fraction",
-            "bagging_fraction",
-            "num_iterations",
-            "lambda_l1",
-            "lambda_l2",
-            "AUC",
-        ]
-    )
-
-    best_auc = 0.0
+    param_list = []
+    best_auc = -np.inf
     best_params = None
+    best_num_iterations = None
 
     for learning_rate in learning_rate_list:
         for max_depth in max_depth_list:
@@ -137,162 +220,170 @@ def train_lgbm_model(
                                         "bagging_fraction": bagging_fraction,
                                         "lambda_l1": lambda_l1,
                                         "lambda_l2": lambda_l2,
+                                        "verbosity": -1,
+                                        "random_state": random_state,
                                     }
 
                                     model = lgb.train(
                                         params,
                                         train_data,
-                                        num_iterations,
+                                        num_boost_round=num_iterations,
                                         valid_sets=[test_data],
-                                        verbose_eval=False,
-                                        early_stopping_rounds=10,
-                                    )
-
-                                    y_pred_prob = model.predict(x_test)
-                                    auc = roc_auc_score(y_test, y_pred_prob)
-
-                                    param_list = pd.concat(
-                                        [
-                                            param_list,
-                                            pd.DataFrame(
-                                                [
-                                                    {
-                                                        "learning_rate": learning_rate,
-                                                        "max_depth": max_depth,
-                                                        "num_leaves": num_leaves,
-                                                        "feature_fraction": feature_fraction,
-                                                        "bagging_fraction": bagging_fraction,
-                                                        "num_iterations": num_iterations,
-                                                        "lambda_l1": lambda_l1,
-                                                        "lambda_l2": lambda_l2,
-                                                        "AUC": auc,
-                                                    }
-                                                ]
+                                        valid_names=["test"],
+                                        callbacks=[
+                                            lgb.early_stopping(
+                                                stopping_rounds=10,
+                                                verbose=False,
                                             ),
+                                            lgb.log_evaluation(period=0),
                                         ],
-                                        ignore_index=True,
                                     )
 
-                                    if auc > best_auc:
-                                        best_auc = float(auc)
-                                        best_params = params
+                                    y_pred_prob_test = model.predict(
+                                        x_test,
+                                        num_iteration=model.best_iteration,
+                                    )
+                                    auc_test = roc_auc_score(y_test, y_pred_prob_test)
 
-    param_list = param_list.sort_values(by=["AUC"], ascending=False).reset_index(
-        drop=True
+                                    param_list.append({
+                                        "learning_rate": learning_rate,
+                                        "max_depth": max_depth,
+                                        "num_leaves": num_leaves,
+                                        "feature_fraction": feature_fraction,
+                                        "bagging_fraction": bagging_fraction,
+                                        "num_iterations": num_iterations,
+                                        "lambda_l1": lambda_l1,
+                                        "lambda_l2": lambda_l2,
+                                        "AUC": float(auc_test),
+                                    })
+
+                                    if auc_test > best_auc:
+                                        best_auc = float(auc_test)
+                                        best_params = params.copy()
+                                        best_num_iterations = num_iterations
+
+    if best_params is None or best_num_iterations is None:
+        raise RuntimeError("LGBM grid search failed to fit any model.")
+
+    pd.DataFrame(param_list).sort_values("AUC", ascending=False).to_csv(
+        save_dir / "parameter_search.csv",
+        index=False,
     )
-    best_num_iterations = int(param_list.loc[0, "num_iterations"])
 
     final_model = lgb.train(
         best_params,
         train_data,
-        best_num_iterations,
+        num_boost_round=best_num_iterations,
         valid_sets=[test_data],
-        verbose_eval=False,
-        early_stopping_rounds=10,
+        valid_names=["test"],
+        callbacks=[
+            lgb.early_stopping(stopping_rounds=10, verbose=False),
+            lgb.log_evaluation(period=0),
+        ],
     )
 
-    importance = _extract_lgbm_importance(final_model, x_train)
+    with (save_dir / "lgbm_model.pkl").open("wb") as f:
+        pickle.dump(final_model, f)
 
-    y_pred_prob_val = final_model.predict(x_val)
-    performance = find_best_cutoff(y_val, y_pred_prob_val)
-
-    # ROC curve (validation)
-    roc_auc_val = _plot_and_save_roc(
-        y_val,
-        y_pred_prob_val,
-        save_path=os.path.join(base_dir, "ROC_curve.jpg"),
-        title="ROC (LightGBM)",
+    y_pred_prob = final_model.predict(
+        x_validation,
+        num_iteration=final_model.best_iteration,
     )
 
-    # Feature importance barplot
-    feature_importance_df = pd.DataFrame(
-        {"Feature": x_train.columns, "Importance": final_model.feature_importance()}
-    ).sort_values(by="Importance", ascending=False)
+    performance = find_best_cutoff(y_validation, y_pred_prob)
+    roc_auc = roc_auc_score(y_validation, y_pred_prob)
+    importance = _extract_lgbm_feature_importance(final_model, x_train)
 
-    plt.figure(figsize=(10, 18))
-    sns.barplot(x="Importance", y="Feature", data=feature_importance_df)
-    plt.title("Feature Importance (LightGBM)")
-    plt.xlabel("Importance Score")
-    plt.ylabel("Feature")
-    plt.tight_layout()
-    plt.savefig(os.path.join(base_dir, "feature_importance.jpg"), dpi=500)
-    plt.close()
+    if make_plots:
+        save_roc_curve(y_validation, y_pred_prob, save_dir / "ROC_curve.jpg")
 
-    # SHAP
-    explainer = shap.TreeExplainer(final_model)
-    shap_values = explainer(x_val)
+        feature_importance = pd.DataFrame({
+            "Feature": x_train.columns,
+            "Importance": final_model.feature_importance(),
+        }).sort_values("Importance", ascending=False)
 
-    fig = plt.figure(figsize=(10, 6))
-    shap.plots.beeswarm(shap_values, show=False, max_display=20)
-    fig.savefig(
-        os.path.join(base_dir, "shap_summary_plot.png"),
-        dpi=300,
-        bbox_inches="tight",
-    )
-    plt.close(fig)
+        plt.figure(figsize=(10, 18))
+        sns.barplot(x="Importance", y="Feature", data=feature_importance)
+        plt.title("Feature Importance (LightGBM)")
+        plt.xlabel("Importance Score")
+        plt.ylabel("Feature")
+        plt.savefig(save_dir / "feature_importance.jpg", dpi=500, bbox_inches="tight")
+        plt.close()
 
-    # Single tree plot
-    fig, ax = plt.subplots(figsize=(30, 10))
-    lgb.plot_tree(final_model, tree_index=0, ax=ax)
-    plt.savefig(os.path.join(base_dir, "lgbm_tree.png"), dpi=500, bbox_inches="tight")
-    plt.close()
+        try:
+            fig, ax = plt.subplots(figsize=(30, 10))
+            lgb.plot_tree(final_model, tree_index=0, ax=ax)
+            plt.savefig(save_dir / "lgbm_tree.png", dpi=500, bbox_inches="tight")
+            plt.close(fig)
+        except Exception as exc:
+            print(f"Warning: failed to save LightGBM tree plot: {exc}")
 
-    info = {
-        "params": best_params,
-        "performance": performance,
-        "importance": importance,
-        "y_pred_prob_val": y_pred_prob_val,
-    }
+    if make_shap:
+        shap = _require_shap()
+        try:
+            explainer = shap.TreeExplainer(final_model)
+            shap_values = explainer(x_validation)
 
-    return best_auc, roc_auc_val, info
+            fig = plt.figure(figsize=(10, 6))
+            shap.plots.beeswarm(shap_values, show=False, max_display=20)
+            fig.savefig(
+                save_dir / "shap_summary_plot.png",
+                dpi=300,
+                bbox_inches="tight",
+            )
+            plt.close(fig)
+        except Exception as exc:
+            print(f"Warning: failed to save LightGBM SHAP plot: {exc}")
+
+    best_params_return = best_params.copy()
+    best_params_return["num_iterations"] = best_num_iterations
+    best_params_return["best_iteration"] = final_model.best_iteration
+
+    return best_auc, float(roc_auc), best_params_return, y_pred_prob, performance, importance
 
 
-# -------------------------------------------------------------------
-# XGBoost
-# -------------------------------------------------------------------
-def train_xgb_model(
-    x_train: pd.DataFrame,
-    y_train: pd.Series,
-    x_test: pd.DataFrame,
-    y_test: pd.Series,
-    x_val: pd.DataFrame,
-    y_val: pd.Series,
-    features_tag: str,
-    pca_tag: str,
-    output_root: str = "result",
-) -> Tuple[float, float, Dict[str, Any]]:
+def XGB(
+    x_train,
+    y_train,
+    x_test,
+    y_test,
+    x_validation,
+    y_validation,
+    *,
+    save_dir,
+    random_state=123,
+    save_trees=False,
+    make_plots=True,
+    make_shap=True,
+    run_label=None,
+):
     """
-    Train an XGBoost model with a small hyperparameter search and
-    save model, feature importance, SHAP summary, and tree visualizations.
+    Train and evaluate an XGBoost classifier using a small manual grid search.
     """
-    y_train = y_train.astype(int)
-    y_test = y_test.astype(int)
-    y_val = y_val.astype(int)
+    xgb = _require_xgboost()
+    save_dir = ensure_dir(save_dir)
 
-    base_dir = os.path.join(output_root, features_tag, pca_tag, "XGB")
-    os.makedirs(base_dir, exist_ok=True)
-
-    learning_rate_list = [0.1]
-    max_depth_list = [5]
-    n_estimators_list = [100]
-    colsample_bytree_list = [0.5]
-    subsample_list = [0.5]
-    reg_lambda_list = [0.0]
-    reg_alpha_list = [0.0]
-
-    param_list = pd.DataFrame(
-        columns=[
-            "learning_rate",
-            "max_depth",
-            "n_estimators",
-            "colsample_bytree",
-            "subsample",
-            "reg_lambda",
-            "reg_alpha",
-            "AUC",
-        ]
+    x_train, x_test, x_validation = _align_categorical_columns_for_boosting(
+        x_train,
+        x_test,
+        x_validation,
     )
-    best_auc = 0.0
+
+    if run_label is None:
+        run_label = f"pid{os.getpid()}__{uuid.uuid4().hex[:8]}"
+
+    run_id = safe_filename(run_label)
+
+    learning_rate_list = [0.01, 0.1]
+    max_depth_list = [5, 30]
+    n_estimators_list = [10, 100]
+    colsample_bytree_list = [0.5, 1.0]
+    subsample_list = [0.5, 1.0]
+    reg_lambda_list = [0, 0.1]
+    reg_alpha_list = [0, 0.1]
+
+    param_list = []
+    best_auc = -np.inf
     best_params = None
 
     for learning_rate in learning_rate_list:
@@ -312,12 +403,14 @@ def train_xgb_model(
                                     "reg_alpha": reg_alpha,
                                     "objective": "binary:logistic",
                                     "eval_metric": "auc",
-                                    "use_label_encoder": False,
                                     "enable_categorical": True,
                                     "tree_method": "hist",
+                                    "random_state": random_state,
+                                    "n_jobs": 1,
                                 }
 
                                 model = xgb.XGBClassifier(**params)
+
                                 model.fit(
                                     x_train,
                                     y_train,
@@ -325,36 +418,30 @@ def train_xgb_model(
                                     verbose=False,
                                 )
 
-                                y_pred_prob = model.predict_proba(x_test)[:, 1]
-                                auc = roc_auc_score(y_test, y_pred_prob)
+                                y_pred_prob_test = model.predict_proba(x_test)[:, 1]
+                                auc_test = roc_auc_score(y_test, y_pred_prob_test)
 
-                                param_list = pd.concat(
-                                    [
-                                        param_list,
-                                        pd.DataFrame(
-                                            [
-                                                {
-                                                    "learning_rate": learning_rate,
-                                                    "max_depth": max_depth,
-                                                    "n_estimators": n_estimators,
-                                                    "colsample_bytree": colsample_bytree,
-                                                    "subsample": subsample,
-                                                    "reg_lambda": reg_lambda,
-                                                    "reg_alpha": reg_alpha,
-                                                    "AUC": auc,
-                                                }
-                                            ]
-                                        ),
-                                    ],
-                                    ignore_index=True,
-                                )
+                                param_list.append({
+                                    "learning_rate": learning_rate,
+                                    "max_depth": max_depth,
+                                    "n_estimators": n_estimators,
+                                    "colsample_bytree": colsample_bytree,
+                                    "subsample": subsample,
+                                    "reg_lambda": reg_lambda,
+                                    "reg_alpha": reg_alpha,
+                                    "AUC": float(auc_test),
+                                })
 
-                                if auc > best_auc:
-                                    best_auc = float(auc)
-                                    best_params = params
+                                if auc_test > best_auc:
+                                    best_auc = float(auc_test)
+                                    best_params = params.copy()
 
-    param_list = param_list.sort_values(by=["AUC"], ascending=False).reset_index(
-        drop=True
+    if best_params is None:
+        raise RuntimeError("XGB grid search failed to fit any model.")
+
+    pd.DataFrame(param_list).sort_values("AUC", ascending=False).to_csv(
+        save_dir / "parameter_search.csv",
+        index=False,
     )
 
     final_model = xgb.XGBClassifier(**best_params)
@@ -365,29 +452,12 @@ def train_xgb_model(
         verbose=False,
     )
 
-    # Save model
-    with open(os.path.join(base_dir, "xgb_model.pkl"), "wb") as f:
+    with (save_dir / "xgb_model.pkl").open("wb") as f:
         pickle.dump(final_model, f)
 
-    # Validation predictions
-    y_pred_prob_val = final_model.predict_proba(x_val)[:, 1]
-    performance = find_best_cutoff(y_val, y_pred_prob_val)
-
-    # ROC curve (validation)
-    roc_auc_val = _plot_and_save_roc(
-        y_val,
-        y_pred_prob_val,
-        save_path=os.path.join(base_dir, "ROC_curve.jpg"),
-        title="ROC (XGBoost)",
-    )
-
-    # Feature importance plot
-    plt.figure(figsize=(50, 30))
-    xgb.plot_importance(final_model)
-    plt.title("Feature Importance (XGBoost)")
-    plt.tight_layout()
-    plt.savefig(os.path.join(base_dir, "feature_importance.jpg"), dpi=500)
-    plt.close()
+    y_pred_prob = final_model.predict_proba(x_validation)[:, 1]
+    performance = find_best_cutoff(y_validation, y_pred_prob)
+    roc_auc = roc_auc_score(y_validation, y_pred_prob)
 
     importance_scores = final_model.feature_importances_
     importance = {
@@ -395,98 +465,97 @@ def train_xgb_model(
         for feature, score in zip(x_train.columns, importance_scores)
     }
 
-    # SHAP summary plot
-    explainer = shap.TreeExplainer(
-        final_model, feature_perturbation="tree_path_dependent"
-    )
-    shap_values = explainer.shap_values(x_val)
+    if make_plots:
+        save_roc_curve(y_validation, y_pred_prob, save_dir / "ROC_curve.jpg")
 
-    fig = plt.figure(figsize=(10, 6))
-    shap.summary_plot(shap_values, x_val, show=False, max_display=20)
-    fig.savefig(
-        os.path.join(base_dir, "shap_summary_plot.png"),
-        dpi=300,
-        bbox_inches="tight",
-    )
-    plt.close(fig)
+        plt.figure(figsize=(50, 30))
+        xgb.plot_importance(final_model)
+        plt.title("Feature Importance (XGBoost)")
+        plt.savefig(save_dir / "feature_importance.jpg", dpi=500, bbox_inches="tight")
+        plt.close()
 
-    # Tree visualizations
-    booster = final_model.get_booster()
-    num_trees = booster.num_boosted_rounds()
+    if make_shap:
+        try:
+            x_shap = x_validation.copy()
 
-    tree_dir = os.path.join(base_dir, "trees")
-    os.makedirs(tree_dir, exist_ok=True)
+            if len(x_shap) > 1000:
+                x_shap = x_shap.sample(n=1000, random_state=random_state)
 
-    for i in range(num_trees):
-        dot = to_graphviz(booster, num_trees=i, rankdir="LR")
-        dot.render(
-            filename=os.path.join(tree_dir, f"tree_{i}"),
-            format="png",
-            cleanup=True,
-        )
+            dvalid = xgb.DMatrix(x_shap, enable_categorical=True)
+            booster = final_model.get_booster()
 
-    trees = booster.get_dump(with_stats=True)
-    tree_txt_dir = os.path.join(base_dir, "trees_txt")
-    os.makedirs(tree_txt_dir, exist_ok=True)
+            shap_contribs = booster.predict(dvalid, pred_contribs=True)
+            shap_values = shap_contribs[:, :-1]
 
-    for i, tree in enumerate(trees):
-        with open(os.path.join(tree_txt_dir, f"tree_{i}.txt"), "w") as f:
-            f.write(tree)
+            shap = _require_shap()
+            shap.summary_plot(shap_values, x_shap, show=False, max_display=20)
 
-    info = {
-        "params": best_params,
-        "performance": performance,
-        "importance": importance,
-        "y_pred_prob_val": y_pred_prob_val,
-    }
+            plt.savefig(
+                save_dir / "shap_summary_plot.png",
+                dpi=300,
+                bbox_inches="tight",
+            )
+            plt.close()
+        except Exception as exc:
+            print(f"Warning: failed to save XGBoost SHAP plot: {exc}")
 
-    return best_auc, roc_auc_val, info
+    if save_trees:
+        booster = final_model.get_booster()
+        num_trees = booster.num_boosted_rounds()
+
+        tree_dir = ensure_dir(save_dir / "trees")
+        tree_txt_dir = ensure_dir(save_dir / "trees_txt")
+
+        for i in range(num_trees):
+            dot = xgb.to_graphviz(
+                booster,
+                num_trees=i,
+                rankdir="LR",
+            )
+
+            tree_filename = f"tree_{run_id}_{i}"
+
+            dot.render(
+                filename=tree_filename,
+                directory=tree_dir,
+                format="png",
+                cleanup=True,
+            )
+
+        trees = booster.get_dump(with_stats=True)
+
+        for i, tree in enumerate(trees):
+            tree_txt_path = tree_txt_dir / f"tree_{run_id}_{i}.txt"
+            with tree_txt_path.open("w", encoding="utf-8") as f:
+                f.write(tree)
+
+    return best_auc, float(roc_auc), best_params, y_pred_prob, performance, importance
 
 
-# -------------------------------------------------------------------
-# Logistic Regression
-# -------------------------------------------------------------------
-def train_lr_model(
-    x_train: pd.DataFrame,
-    y_train: pd.Series,
-    x_test: pd.DataFrame,
-    y_test: pd.Series,
-    x_val: pd.DataFrame,
-    y_val: pd.Series,
-    features_tag: str,
-    pca_tag: str,
-    output_root: str = "result",
-) -> Tuple[float, float, Dict[str, Any]]:
+def LR(
+    x_train,
+    y_train,
+    x_test,
+    y_test,
+    x_validation,
+    y_validation,
+    *,
+    save_dir,
+    random_state=123,
+    make_plots=True,
+):
     """
-    Train a Logistic Regression model with one-hot encoded features and
-    a small grid search over C and penalty.
+    Train and evaluate logistic regression using a small manual grid search.
     """
-    base_dir = os.path.join(output_root, features_tag, pca_tag, "LR")
-    os.makedirs(base_dir, exist_ok=True)
+    save_dir = ensure_dir(save_dir)
 
-    # One-hot encoding
-    x_train_enc = pd.get_dummies(x_train)
-    x_test_enc = pd.get_dummies(x_test)
-    x_val_enc = pd.get_dummies(x_val)
-
-    # Align columns
-    x_train_enc, x_test_enc = x_train_enc.align(
-        x_test_enc, join="left", axis=1, fill_value=0
-    )
-    x_train_enc, x_val_enc = x_train_enc.align(
-        x_val_enc, join="left", axis=1, fill_value=0
-    )
-
-    y_train = y_train.astype(int)
-    y_test = y_test.astype(int)
-    y_val = y_val.astype(int)
+    x_train, x_test, x_validation = _one_hot_align(x_train, x_test, x_validation)
 
     C_list = [0.001, 0.01, 0.1, 1.0, 10.0]
     penalty_list = ["l1", "l2"]
 
-    param_list = pd.DataFrame({"C": [], "penalty": [], "AUC": []})
-
-    best_auc = 0.0
+    param_list = []
+    best_auc = -np.inf
     best_params = None
 
     for C in C_list:
@@ -494,127 +563,106 @@ def train_lr_model(
             try:
                 solver = "liblinear" if penalty == "l1" else "lbfgs"
                 model = LogisticRegression(
-                    C=C, penalty=penalty, solver=solver, max_iter=500
+                    C=C,
+                    penalty=penalty,
+                    solver=solver,
+                    max_iter=500,
+                    random_state=random_state,
                 )
-                model.fit(x_train_enc, y_train)
+                model.fit(x_train, y_train)
 
-                y_pred_prob_test = model.predict_proba(x_test_enc)[:, 1]
-                auc = roc_auc_score(y_test, y_pred_prob_test)
+                y_pred_prob_test = model.predict_proba(x_test)[:, 1]
+                auc_test = roc_auc_score(y_test, y_pred_prob_test)
 
-                param_list = pd.concat(
-                    [param_list, pd.DataFrame([{"C": C, "penalty": penalty, "AUC": auc}])],
-                    ignore_index=True,
-                )
+                param_list.append({
+                    "C": C,
+                    "penalty": penalty,
+                    "AUC": float(auc_test),
+                })
 
-                if auc > best_auc:
-                    best_auc = float(auc)
+                if auc_test > best_auc:
+                    best_auc = float(auc_test)
                     best_params = {"C": C, "penalty": penalty}
 
-            except Exception as e:
-                print(f"Error with C={C}, penalty={penalty}: {e}")
+            except Exception as exc:
+                print(f"Warning: LR failed for C={C}, penalty={penalty}: {exc}")
                 continue
+
+    if best_params is None:
+        raise RuntimeError("LR grid search failed to fit any model.")
+
+    pd.DataFrame(param_list).sort_values("AUC", ascending=False).to_csv(
+        save_dir / "parameter_search.csv",
+        index=False,
+    )
 
     final_model = LogisticRegression(
         C=best_params["C"],
         penalty=best_params["penalty"],
         solver="liblinear" if best_params["penalty"] == "l1" else "lbfgs",
         max_iter=500,
+        random_state=random_state,
     )
-    final_model.fit(x_train_enc, y_train)
+    final_model.fit(x_train, y_train)
 
-    y_pred_prob_val = final_model.predict_proba(x_val_enc)[:, 1]
-    performance = find_best_cutoff(y_val, y_pred_prob_val)
-    roc_auc_val = roc_auc_score(y_val, y_pred_prob_val)
+    with (save_dir / "lr_model.pkl").open("wb") as f:
+        pickle.dump(final_model, f)
 
-    # ROC curve
-    _ = _plot_and_save_roc(
-        y_val,
-        y_pred_prob_val,
-        save_path=os.path.join(base_dir, "ROC_curve.jpg"),
-        title="ROC (Logistic Regression)",
-    )
+    y_pred_prob = final_model.predict_proba(x_validation)[:, 1]
+    performance = find_best_cutoff(y_validation, y_pred_prob)
+    roc_auc = roc_auc_score(y_validation, y_pred_prob)
 
-    # Coefficients and p-values (approximation, as in original code)
-    x_train_numeric = x_train_enc
+    if make_plots:
+        save_roc_curve(y_validation, y_pred_prob, save_dir / "ROC_curve.jpg")
+
     coef = final_model.coef_[0]
-    feature_names = x_train_numeric.columns
+    feature_names = x_train.columns
     n = len(y_train)
 
-    # Simple standard error approximation (same logic as original)
-    std_x = np.std(x_train_numeric, 0)
-    var_x = np.var(x_train_numeric, 0)
-    mean_x = np.mean(x_train_numeric, 0)
+    variance = np.var(x_train, axis=0)
+    variance = variance.replace(0, np.nan)
 
-    standard_errors = std_x * np.sqrt((1.0 / n) + (mean_x**2 / (var_x + 1e-8)))
-    z_scores = coef / (standard_errors + 1e-8)
-    p_values = stats.norm.sf(np.abs(z_scores)) * 2.0
+    standard_errors = np.std(x_train, axis=0) * np.sqrt(
+        (1 / n) + (np.mean(x_train, axis=0) ** 2 / variance)
+    )
+    z_scores = coef / standard_errors
+    p_values = stats.norm.sf(np.abs(z_scores)) * 2
 
     importance = {
-        feature: [float(weight), float(p_val)]
+        feature: [float(weight), None if pd.isna(p_val) else float(p_val)]
         for feature, weight, p_val in zip(feature_names, coef, p_values)
     }
 
-    # Save model and encoded feature names
-    with open(os.path.join(base_dir, "lr_model.pkl"), "wb") as f:
-        pickle.dump(
-            {
-                "model": final_model,
-                "feature_names": list(feature_names),
-            },
-            f,
-        )
-
-    info = {
-        "params": best_params,
-        "performance": performance,
-        "importance": importance,
-        "y_pred_prob_val": y_pred_prob_val,
-    }
-
-    return best_auc, float(roc_auc_val), info
+    return best_auc, float(roc_auc), best_params, y_pred_prob, performance, importance
 
 
-# -------------------------------------------------------------------
-# Random Forest
-# -------------------------------------------------------------------
-def train_rf_model(
-    x_train: pd.DataFrame,
-    y_train: pd.Series,
-    x_test: pd.DataFrame,
-    y_test: pd.Series,
-    x_val: pd.DataFrame,
-    y_val: pd.Series,
-    features_tag: str,
-    pca_tag: str,
-    output_root: str = "result",
-) -> Tuple[float, float, Dict[str, Any]]:
+def RF(
+    x_train,
+    y_train,
+    x_test,
+    y_test,
+    x_validation,
+    y_validation,
+    *,
+    save_dir,
+    random_state=123,
+    n_jobs=3,
+    make_plots=True,
+):
     """
-    Train a RandomForestClassifier with grid search similar to the original code
-    and save ROC and feature-importance plots.
+    Train and evaluate a random forest classifier using a small manual grid search.
     """
-    base_dir = os.path.join(output_root, features_tag, pca_tag, "RF")
-    os.makedirs(base_dir, exist_ok=True)
+    save_dir = ensure_dir(save_dir)
 
-    y_train = y_train.astype(int)
-    y_test = y_test.astype(int)
-    y_val = y_val.astype(int)
+    x_train, x_test, x_validation = _one_hot_align(x_train, x_test, x_validation)
 
     n_estimators_list = [50, 100, 200]
     max_depth_list = [5, 10, 30, None]
     min_samples_split_list = [2, 5, 10]
     min_samples_leaf_list = [1, 2, 5]
 
-    param_list = pd.DataFrame(
-        {
-            "n_estimators": [],
-            "max_depth": [],
-            "min_samples_split": [],
-            "min_samples_leaf": [],
-            "AUC": [],
-        }
-    )
-
-    best_auc = 0.0
+    param_list = []
+    best_auc = -np.inf
     best_params = None
 
     for n_estimators in n_estimators_list:
@@ -626,35 +674,25 @@ def train_rf_model(
                         max_depth=max_depth,
                         min_samples_split=min_samples_split,
                         min_samples_leaf=min_samples_leaf,
-                        random_state=42,
-                        n_jobs=-1,
+                        random_state=random_state,
+                        n_jobs=n_jobs,
                     )
 
                     model.fit(x_train, y_train)
 
                     y_pred_prob_test = model.predict_proba(x_test)[:, 1]
-                    auc = roc_auc_score(y_test, y_pred_prob_test)
+                    auc_test = roc_auc_score(y_test, y_pred_prob_test)
 
-                    param_list = pd.concat(
-                        [
-                            param_list,
-                            pd.DataFrame(
-                                [
-                                    {
-                                        "n_estimators": n_estimators,
-                                        "max_depth": max_depth,
-                                        "min_samples_split": min_samples_split,
-                                        "min_samples_leaf": min_samples_leaf,
-                                        "AUC": auc,
-                                    }
-                                ]
-                            ),
-                        ],
-                        ignore_index=True,
-                    )
+                    param_list.append({
+                        "n_estimators": n_estimators,
+                        "max_depth": max_depth,
+                        "min_samples_split": min_samples_split,
+                        "min_samples_leaf": min_samples_leaf,
+                        "AUC": float(auc_test),
+                    })
 
-                    if auc > best_auc:
-                        best_auc = float(auc)
+                    if auc_test > best_auc:
+                        best_auc = float(auc_test)
                         best_params = {
                             "n_estimators": n_estimators,
                             "max_depth": max_depth,
@@ -662,108 +700,87 @@ def train_rf_model(
                             "min_samples_leaf": min_samples_leaf,
                         }
 
-    param_list = param_list.sort_values(by=["AUC"], axis=0, ascending=False)
-    param_list.reset_index(drop=True, inplace=True)
+    if best_params is None:
+        raise RuntimeError("RF grid search failed to fit any model.")
+
+    pd.DataFrame(param_list).sort_values("AUC", ascending=False).to_csv(
+        save_dir / "parameter_search.csv",
+        index=False,
+    )
 
     final_model = RandomForestClassifier(
         n_estimators=best_params["n_estimators"],
         max_depth=best_params["max_depth"],
         min_samples_split=best_params["min_samples_split"],
         min_samples_leaf=best_params["min_samples_leaf"],
-        random_state=42,
-        n_jobs=-1,
+        random_state=random_state,
+        n_jobs=n_jobs,
     )
+
     final_model.fit(x_train, y_train)
 
-    y_pred_prob_val = final_model.predict_proba(x_val)[:, 1]
-    performance = find_best_cutoff(y_val, y_pred_prob_val)
-    roc_auc_val = roc_auc_score(y_val, y_pred_prob_val)
-
-    # ROC curve
-    _ = _plot_and_save_roc(
-        y_val,
-        y_pred_prob_val,
-        save_path=os.path.join(base_dir, "ROC_curve.jpg"),
-        title="ROC (Random Forest)",
-    )
-
-    # Feature importance barplot
-    importances = final_model.feature_importances_
-    feature_names = x_train.columns
-
-    plt.figure(figsize=(10, 6))
-    sns.barplot(x=importances, y=feature_names)
-    plt.title("Feature Importance (Random Forest)")
-    plt.xlabel("Importance Score")
-    plt.ylabel("Feature")
-    plt.tight_layout()
-    plt.savefig(os.path.join(base_dir, "feature_importance.jpg"), dpi=500)
-    plt.close()
-
-    importance_dict = {
-        feature: float(importance)
-        for feature, importance in zip(feature_names, importances)
-    }
-
-    # Save model
-    with open(os.path.join(base_dir, "rf_model.pkl"), "wb") as f:
+    with (save_dir / "rf_model.pkl").open("wb") as f:
         pickle.dump(final_model, f)
 
-    info = {
-        "params": best_params,
-        "performance": performance,
-        "importance": importance_dict,
-        "y_pred_prob_val": y_pred_prob_val,
+    y_pred_prob = final_model.predict_proba(x_validation)[:, 1]
+    performance = find_best_cutoff(y_validation, y_pred_prob)
+    roc_auc = roc_auc_score(y_validation, y_pred_prob)
+
+    importances = final_model.feature_importances_
+    feature_names = x_train.columns
+    importance = {
+        feature: float(score)
+        for feature, score in zip(feature_names, importances)
     }
 
-    return best_auc, float(roc_auc_val), info
+    if make_plots:
+        save_roc_curve(y_validation, y_pred_prob, save_dir / "ROC_curve.jpg")
+
+        plt.figure(figsize=(10, 6))
+        sns.barplot(x=importances, y=feature_names)
+        plt.title("Feature Importance (Random Forest)")
+        plt.xlabel("Importance Score")
+        plt.ylabel("Feature")
+        plt.savefig(save_dir / "feature_importance.jpg", dpi=500, bbox_inches="tight")
+        plt.close()
+
+    return best_auc, float(roc_auc), best_params, y_pred_prob, performance, importance
 
 
-# -------------------------------------------------------------------
-# ANN
-# -------------------------------------------------------------------
-def train_ann_model(
-    x_train: pd.DataFrame,
-    y_train: pd.Series,
-    x_test: pd.DataFrame,
-    y_test: pd.Series,
-    x_val: pd.DataFrame,
-    y_val: pd.Series,
-    features_tag: str,
-    pca_tag: str,
-    output_root: str = "result",
-) -> Tuple[float, float, Dict[str, Any]]:
+def ANN(
+    x_train,
+    y_train,
+    x_test,
+    y_test,
+    x_validation,
+    y_validation,
+    *,
+    save_dir,
+    random_state=123,
+    make_plots=True,
+):
     """
-    Train a feed-forward neural network (ANN) with a small grid search,
-    similar to the original script.
+    Train and evaluate a feed-forward neural network classifier.
     """
-    base_dir = os.path.join(output_root, features_tag, pca_tag, "ANN")
-    os.makedirs(base_dir, exist_ok=True)
+    tf, Sequential, Input, Dense, Dropout, _, Adam = _require_tensorflow()
+    save_dir = ensure_dir(save_dir)
 
-    x_train_arr = np.asarray(x_train, dtype=np.float32)
-    x_test_arr = np.asarray(x_test, dtype=np.float32)
-    x_val_arr = np.asarray(x_val, dtype=np.float32)
+    tf.random.set_seed(random_state)
+    np.random.seed(random_state)
 
-    y_train_arr = np.asarray(y_train, dtype=np.float32)
-    y_test_arr = np.asarray(y_test, dtype=np.float32)
-    y_val_arr = np.asarray(y_val, dtype=np.float32)
+    x_train, x_test, x_validation = _one_hot_align(x_train, x_test, x_validation)
+
+    y_train = np.asarray(y_train).astype("float32")
+    y_test = np.asarray(y_test).astype("float32")
+    y_validation = np.asarray(y_validation).astype("float32")
 
     hidden_units_list = [64, 256]
     hidden_layers_list = [1, 3]
     learning_rate_list = [0.001, 0.01]
     batch_size_list = [32]
 
-    param_list = pd.DataFrame(
-        {
-            "hidden_units": [],
-            "hidden_layers": [],
-            "learning_rate": [],
-            "batch_size": [],
-            "AUC": [],
-        }
-    )
-
-    best_auc = 0.0
+    param_list = []
+    best_auc = -np.inf
     best_params = None
 
     for hidden_units in hidden_units_list:
@@ -771,13 +788,8 @@ def train_ann_model(
             for learning_rate in learning_rate_list:
                 for batch_size in batch_size_list:
                     model = Sequential()
-                    model.add(
-                        Dense(
-                            hidden_units,
-                            activation="relu",
-                            input_shape=(x_train_arr.shape[1],),
-                        )
-                    )
+                    model.add(Input(shape=(x_train.shape[1],)))
+                    model.add(Dense(hidden_units, activation="relu"))
 
                     for _ in range(hidden_layers - 1):
                         model.add(Dense(hidden_units, activation="relu"))
@@ -792,37 +804,27 @@ def train_ann_model(
                     )
 
                     model.fit(
-                        x_train_arr,
-                        y_train_arr,
-                        validation_data=(x_test_arr, y_test_arr),
+                        x_train,
+                        y_train,
+                        validation_data=(x_test, y_test),
                         epochs=50,
                         batch_size=batch_size,
                         verbose=0,
                     )
 
-                    y_pred_prob_test = model.predict(x_test_arr).flatten()
-                    auc = roc_auc_score(y_test_arr, y_pred_prob_test)
+                    y_pred_prob_test = model.predict(x_test, verbose=0).flatten()
+                    auc_test = roc_auc_score(y_test, y_pred_prob_test)
 
-                    param_list = pd.concat(
-                        [
-                            param_list,
-                            pd.DataFrame(
-                                [
-                                    {
-                                        "hidden_units": hidden_units,
-                                        "hidden_layers": hidden_layers,
-                                        "learning_rate": learning_rate,
-                                        "batch_size": batch_size,
-                                        "AUC": auc,
-                                    }
-                                ]
-                            ),
-                        ],
-                        ignore_index=True,
-                    )
+                    param_list.append({
+                        "hidden_units": hidden_units,
+                        "hidden_layers": hidden_layers,
+                        "learning_rate": learning_rate,
+                        "batch_size": batch_size,
+                        "AUC": float(auc_test),
+                    })
 
-                    if auc > best_auc:
-                        best_auc = float(auc)
+                    if auc_test > best_auc:
+                        best_auc = float(auc_test)
                         best_params = {
                             "hidden_units": hidden_units,
                             "hidden_layers": hidden_layers,
@@ -830,18 +832,17 @@ def train_ann_model(
                             "batch_size": batch_size,
                         }
 
-    param_list = param_list.sort_values(by=["AUC"], ascending=False).reset_index(
-        drop=True
+    if best_params is None:
+        raise RuntimeError("ANN grid search failed to fit any model.")
+
+    pd.DataFrame(param_list).sort_values("AUC", ascending=False).to_csv(
+        save_dir / "parameter_search.csv",
+        index=False,
     )
 
     final_model = Sequential()
-    final_model.add(
-        Dense(
-            best_params["hidden_units"],
-            activation="relu",
-            input_shape=(x_train_arr.shape[1],),
-        )
-    )
+    final_model.add(Input(shape=(x_train.shape[1],)))
+    final_model.add(Dense(best_params["hidden_units"], activation="relu"))
 
     for _ in range(best_params["hidden_layers"] - 1):
         final_model.add(Dense(best_params["hidden_units"], activation="relu"))
@@ -856,82 +857,71 @@ def train_ann_model(
     )
 
     final_model.fit(
-        x_train_arr,
-        y_train_arr,
-        validation_data=(x_test_arr, y_test_arr),
+        x_train,
+        y_train,
+        validation_data=(x_test, y_test),
         epochs=50,
         batch_size=best_params["batch_size"],
         verbose=0,
     )
 
-    y_pred_prob_val = final_model.predict(x_val_arr).flatten()
-    performance = find_best_cutoff(y_val_arr, y_pred_prob_val)
-    roc_auc_val = roc_auc_score(y_val_arr, y_pred_prob_val)
+    final_model.save(save_dir / "ann_model.keras")
 
-    # ROC curve
-    _ = _plot_and_save_roc(
-        y_val_arr,
-        y_pred_prob_val,
-        save_path=os.path.join(base_dir, "ROC_curve.jpg"),
-        title="ROC (ANN)",
-    )
+    y_pred_prob = final_model.predict(x_validation, verbose=0).flatten()
+    performance = find_best_cutoff(y_validation, y_pred_prob)
+    roc_auc = roc_auc_score(y_validation, y_pred_prob)
 
-    # Save model
-    final_model.save(os.path.join(base_dir, "ann_model.h5"))
+    if make_plots:
+        save_roc_curve(y_validation, y_pred_prob, save_dir / "ROC_curve.jpg")
 
-    info = {
-        "params": best_params,
-        "performance": performance,
-        "importance": {},  # non-trivial for ANN
-        "y_pred_prob_val": y_pred_prob_val,
-    }
+    importance = {}
 
-    return best_auc, float(roc_auc_val), info
+    return best_auc, float(roc_auc), best_params, y_pred_prob, performance, importance
 
 
-# -------------------------------------------------------------------
-# RNN
-# -------------------------------------------------------------------
-def train_rnn_model(
-    x_train: pd.DataFrame,
-    y_train: pd.Series,
-    x_test: pd.DataFrame,
-    y_test: pd.Series,
-    x_val: pd.DataFrame,
-    y_val: pd.Series,
-    features_tag: str,
-    pca_tag: str,
-    output_root: str = "result",
-) -> Tuple[float, float, Dict[str, Any]]:
+def RNN(
+    x_train,
+    y_train,
+    x_test,
+    y_test,
+    x_validation,
+    y_validation,
+    *,
+    save_dir,
+    random_state=123,
+    make_plots=True,
+):
     """
-    Train a SimpleRNN-based model on single-timestep sequences (shape: (N, 1, num_features)),
-    mirroring the original RNN implementation.
+    Train and evaluate a simple RNN classifier.
+
+    For tabular data, this treats the feature vector as a single time step.
+    Categorical columns are one-hot encoded before reshaping.
     """
-    base_dir = os.path.join(output_root, features_tag, pca_tag, "RNN")
-    os.makedirs(base_dir, exist_ok=True)
+    tf, Sequential, _, Dense, Dropout, SimpleRNN, Adam = _require_tensorflow()
+    save_dir = ensure_dir(save_dir)
+
+    tf.random.set_seed(random_state)
+    np.random.seed(random_state)
+
+    x_train, x_test, x_validation = _one_hot_align(x_train, x_test, x_validation)
 
     num_features = x_train.shape[1]
 
-    x_train_arr = np.array(x_train, dtype=np.float32).reshape(
-        (x_train.shape[0], 1, num_features)
-    )
-    x_test_arr = np.array(x_test, dtype=np.float32).reshape(
-        (x_test.shape[0], 1, num_features)
-    )
-    x_val_arr = np.array(x_val, dtype=np.float32).reshape(
-        (x_val.shape[0], 1, num_features)
-    )
+    x_train = np.asarray(x_train, dtype=np.float32).reshape((x_train.shape[0], 1, num_features))
+    x_test = np.asarray(x_test, dtype=np.float32).reshape((x_test.shape[0], 1, num_features))
+    x_validation = np.asarray(x_validation, dtype=np.float32).reshape((x_validation.shape[0], 1, num_features))
 
-    y_train_arr = np.array(y_train, dtype=np.float32)
-    y_test_arr = np.array(y_test, dtype=np.float32)
-    y_val_arr = np.array(y_val, dtype=np.float32)
+    y_train = np.asarray(y_train, dtype=np.float32)
+    y_test = np.asarray(y_test, dtype=np.float32)
+    y_validation = np.asarray(y_validation, dtype=np.float32)
 
     hidden_units_list = [32, 128]
     hidden_layers_list = [1, 3]
     learning_rate_list = [0.001, 0.01]
     batch_size_list = [32]
 
-    best_auc = 0.0
+    param_list = []
+    best_auc = -np.inf
     best_params = None
 
     for hidden_units in hidden_units_list:
@@ -969,25 +959,41 @@ def train_rnn_model(
                     )
 
                     model.fit(
-                        x_train_arr,
-                        y_train_arr,
-                        validation_data=(x_test_arr, y_test_arr),
+                        x_train,
+                        y_train,
+                        validation_data=(x_test, y_test),
                         epochs=10,
                         batch_size=batch_size,
                         verbose=0,
                     )
 
-                    y_pred_prob_test = model.predict(x_test_arr).flatten()
-                    auc = roc_auc_score(y_test_arr, y_pred_prob_test)
+                    y_pred_prob_test = model.predict(x_test, verbose=0).flatten()
+                    auc_test = roc_auc_score(y_test, y_pred_prob_test)
 
-                    if auc > best_auc:
-                        best_auc = float(auc)
+                    param_list.append({
+                        "hidden_units": hidden_units,
+                        "hidden_layers": hidden_layers,
+                        "learning_rate": learning_rate,
+                        "batch_size": batch_size,
+                        "AUC": float(auc_test),
+                    })
+
+                    if auc_test > best_auc:
+                        best_auc = float(auc_test)
                         best_params = {
                             "hidden_units": hidden_units,
                             "hidden_layers": hidden_layers,
                             "learning_rate": learning_rate,
                             "batch_size": batch_size,
                         }
+
+    if best_params is None:
+        raise RuntimeError("RNN grid search failed to fit any model.")
+
+    pd.DataFrame(param_list).sort_values("AUC", ascending=False).to_csv(
+        save_dir / "parameter_search.csv",
+        index=False,
+    )
 
     final_model = Sequential()
     final_model.add(
@@ -1020,34 +1026,33 @@ def train_rnn_model(
     )
 
     final_model.fit(
-        x_train_arr,
-        y_train_arr,
-        validation_data=(x_test_arr, y_test_arr),
+        x_train,
+        y_train,
+        validation_data=(x_test, y_test),
         epochs=10,
         batch_size=best_params["batch_size"],
         verbose=0,
     )
 
-    y_pred_prob_val = final_model.predict(x_val_arr).flatten()
-    performance = find_best_cutoff(y_val_arr, y_pred_prob_val)
-    roc_auc_val = roc_auc_score(y_val_arr, y_pred_prob_val)
+    final_model.save(save_dir / "rnn_model.keras")
 
-    # ROC curve
-    _ = _plot_and_save_roc(
-        y_val_arr,
-        y_pred_prob_val,
-        save_path=os.path.join(base_dir, "ROC_curve.jpg"),
-        title="ROC (RNN)",
-    )
+    y_pred_prob = final_model.predict(x_validation, verbose=0).flatten()
+    performance = find_best_cutoff(y_validation, y_pred_prob)
+    roc_auc = roc_auc_score(y_validation, y_pred_prob)
 
-    # Save model
-    final_model.save(os.path.join(base_dir, "rnn_model.h5"))
+    if make_plots:
+        save_roc_curve(y_validation, y_pred_prob, save_dir / "ROC_curve.jpg")
 
-    info = {
-        "params": best_params,
-        "performance": performance,
-        "importance": {},  # not defined for RNN here
-        "y_pred_prob_val": y_pred_prob_val,
-    }
+    importance = {}
 
-    return best_auc, float(roc_auc_val), info
+    return best_auc, float(roc_auc), best_params, y_pred_prob, performance, importance
+
+
+MODEL_REGISTRY = {
+    "LR": LR,
+    "RF": RF,
+    "XGB": XGB,
+    "LGBM": LGBM,
+    "ANN": ANN,
+    "RNN": RNN,
+}
