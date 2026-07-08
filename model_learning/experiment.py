@@ -278,7 +278,12 @@ def add_ensemble_result(
     ensemble_pred_array = np.vstack(ensemble_pred_list)
     y_pred_prob = ensemble_pred_array.mean(axis=0)
 
-    performance = find_best_cutoff(y_validation, y_pred_prob)
+    performance = find_best_cutoff(
+        y_test_true=y_test,
+        y_test_pred_prob=y_pred_prob_test,
+        y_valid_true=y_validation,
+        y_valid_pred_prob=y_pred_prob,
+    )
     roc_auc = save_roc_curve(
         y_validation,
         y_pred_prob,
