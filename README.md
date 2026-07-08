@@ -192,17 +192,8 @@ The original data and detailed schema are not distributed with this repository.
 
 ```bash
 python scripts/run_preprocessing.py \
-  --cohort-data path/to/cohort_data.sas7bdat \
-  --glucose-data path/to/glucose_data.xlsx \
-  --output-csv outputs/preprocessed_data.csv
-```
-
-CSV input is also supported:
-
-```bash
-python scripts/run_preprocessing.py \
-  --cohort-data path/to/cohort_data.csv \
-  --glucose-data path/to/glucose_data.xlsx \
+  --cohort-data path/to/cohort_data_example.csv \
+  --glucose-data path/to/glucose_data_example.xlsx \
   --output-csv outputs/preprocessed_data.csv
 ```
 
