@@ -69,7 +69,7 @@ The workflow is:
 
 ### 3.1. Python
 
-- Tested on **Python 3.11**
+- Tested on **Python 3.10**
 
 ### 3.2. System dependency: Graphviz
 
