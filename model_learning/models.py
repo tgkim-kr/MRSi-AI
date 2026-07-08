@@ -222,6 +222,7 @@ def LGBM(
                                         "lambda_l2": lambda_l2,
                                         "verbosity": -1,
                                         "random_state": random_state,
+                                        "num_threads": 1,
                                     }
 
                                     model = lgb.train(
