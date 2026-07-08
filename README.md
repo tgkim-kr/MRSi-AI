@@ -299,7 +299,39 @@ Use the `--sampling` argument:
 
 The split is performed at the participant level using the `rid` column to prevent the same participant from appearing in more than one split. The default split ratio is 80% train, 10% test, and 10% validation.
 
-### 8.5. Example command
+### 8.5. Quick test command
+
+After generating `result/preprocessed_data.csv` with the preprocessing command above, the following command can be used as a lightweight smoke test to check whether the model-learning pipeline runs correctly with the synthetic example data:
+
+```bash
+python scripts/run_training.py \
+  --input-csv result/preprocessed_data.csv \
+  --output-dir result_test \
+  --data-type diag \
+  --sampling none \
+  --feature-sets all \
+  --pca-modes plus \
+  --models LR RF XGB \
+  --no-plots \
+  --no-shap \
+  --n-jobs 1
+```
+
+For this quick test, the following parts of the full experimental pipeline are intentionally excluded or reduced:
+
+- Feature groups other than `all` are excluded: `bio`, `physical`, `life`, and `Non_invasive`.
+- PCA modes other than `plus` are excluded: `none` and `only`.
+- `LGBM` is excluded to reduce runtime and avoid environment-dependent LightGBM threading issues during a smoke test.
+- Neural-network models are excluded: `ANN` and `RNN`. These models require TensorFlow and usually take longer to run.
+- Oversampling is disabled by `--sampling none`.
+- SHAP analysis is disabled by `--no-shap`.
+- ROC and feature-importance plot generation is disabled by `--no-plots`.
+- XGBoost tree visualization is not enabled. Use `--save-xgb-trees` only when tree images are required.
+- Parallel execution is minimized with `--n-jobs 1` for a simple and reproducible test run.
+
+### 8.6. Full example command
+
+The following command runs the broader experimental setting across all feature groups, PCA modes, and supported model families:
 
 ```bash
 python scripts/run_training.py \
@@ -323,7 +355,7 @@ python scripts/run_training.py \
   --n-jobs 3
 ```
 
-### 8.6. Additional training arguments
+### 8.7. Additional training arguments
 
 ```bash
 --data-type diag
