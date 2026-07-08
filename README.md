@@ -311,7 +311,7 @@ python scripts/run_training.py \
   --sampling none \
   --feature-sets all \
   --pca-modes plus \
-  --models LR RF XGB \
+  --models LR RF XGB LGBM \
   --no-plots \
   --no-shap \
   --n-jobs 1
@@ -321,7 +321,6 @@ For this quick test, the following parts of the full experimental pipeline are i
 
 - Feature groups other than `all` are excluded: `bio`, `physical`, `life`, and `Non_invasive`.
 - PCA modes other than `plus` are excluded: `none` and `only`.
-- `LGBM` is excluded to reduce runtime and avoid environment-dependent LightGBM threading issues during a smoke test.
 - Neural-network models are excluded: `ANN` and `RNN`. These models require TensorFlow and usually take longer to run.
 - Oversampling is disabled by `--sampling none`.
 - SHAP analysis is disabled by `--no-shap`.
