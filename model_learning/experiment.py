@@ -330,7 +330,7 @@ def run_experiment(
     pca_modes: Iterable[str] = DEFAULT_PCA_MODES,
     cpu_models: Iterable[str] = DEFAULT_CPU_MODELS,
     gpu_models: Iterable[str] = DEFAULT_GPU_MODELS,
-    sampling_method: str = "over",
+    sampling_method: str = "no",
     n_jobs: int = 3,
     random_state: int = 123,
     make_plots: bool = True,
