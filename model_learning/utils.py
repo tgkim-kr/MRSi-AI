@@ -70,20 +70,33 @@ def ensure_dir(path: str | os.PathLike[str]) -> Path:
 
 
 def find_best_cutoff(
-    y_true,
-    y_pred_prob,
+    y_test_true,
+    y_test_pred_prob,
+    y_valid_true,
+    y_valid_pred_prob,
     cutoff_grid: np.ndarray | None = None,
 ) -> dict[str, float]:
     """
-    Find the probability cutoff that maximizes F1 score.
+    Find the best probability cutoff on the test set,
+    then evaluate precision, recall, F1, and accuracy on the validation set.
 
     Parameters
     ----------
-    y_true:
-        Ground-truth binary labels.
+    y_test_true:
+        Ground-truth binary labels for the test set.
+        Used only to select the best cutoff.
 
-    y_pred_prob:
-        Predicted positive-class probabilities.
+    y_test_pred_prob:
+        Predicted positive-class probabilities for the test set.
+        Used only to select the best cutoff.
+
+    y_valid_true:
+        Ground-truth binary labels for the validation set.
+        Used to calculate final performance metrics.
+
+    y_valid_pred_prob:
+        Predicted positive-class probabilities for the validation set.
+        Used to calculate final performance metrics using the test-derived cutoff.
 
     cutoff_grid:
         Candidate cutoffs. If None, uses 0.01 to 0.99.
@@ -91,44 +104,61 @@ def find_best_cutoff(
     Returns
     -------
     dict
-        Best cutoff and corresponding precision, recall, F1, and accuracy.
+        Best cutoff selected from test set and validation-set precision,
+        recall, F1, and accuracy.
     """
     if cutoff_grid is None:
         cutoff_grid = np.arange(0.01, 1.0, 0.01)
 
-    y_true = np.asarray(y_true).reshape(-1)
-    y_pred_prob = np.asarray(y_pred_prob).reshape(-1)
+    y_test_true = np.asarray(y_test_true).reshape(-1)
+    y_test_pred_prob = np.asarray(y_test_pred_prob).reshape(-1)
 
-    if len(y_true) != len(y_pred_prob):
+    y_valid_true = np.asarray(y_valid_true).reshape(-1)
+    y_valid_pred_prob = np.asarray(y_valid_pred_prob).reshape(-1)
+
+    if len(y_test_true) != len(y_test_pred_prob):
         raise ValueError(
-            f"y_true and y_pred_prob lengths differ: "
-            f"{len(y_true)} vs {len(y_pred_prob)}"
+            f"y_test_true and y_test_pred_prob lengths differ: "
+            f"{len(y_test_true)} vs {len(y_test_pred_prob)}"
         )
 
+    if len(y_valid_true) != len(y_valid_pred_prob):
+        raise ValueError(
+            f"y_valid_true and y_valid_pred_prob lengths differ: "
+            f"{len(y_valid_true)} vs {len(y_valid_pred_prob)}"
+        )
+
+    # ------------------------------------------------------------
+    # 1. Find best cutoff using test set
+    # ------------------------------------------------------------
     best_cutoff = 0.5
-    best_f1 = -1.0
-    best_metrics: dict[str, float] = {}
+    best_test_f1 = -1.0
 
     for cutoff in cutoff_grid:
-        y_pred = (y_pred_prob >= cutoff).astype(int)
+        y_test_pred = (y_test_pred_prob >= cutoff).astype(int)
+        test_f1 = f1_score(y_test_true, y_test_pred, zero_division=0)
 
-        precision = precision_score(y_true, y_pred, zero_division=0)
-        recall = recall_score(y_true, y_pred, zero_division=0)
-        f1 = f1_score(y_true, y_pred, zero_division=0)
-        accuracy = accuracy_score(y_true, y_pred)
-
-        if f1 > best_f1:
-            best_f1 = f1
+        if test_f1 > best_test_f1:
+            best_test_f1 = test_f1
             best_cutoff = float(cutoff)
-            best_metrics = {
-                "Cutoff": best_cutoff,
-                "Precision": float(precision),
-                "Recall": float(recall),
-                "F1 Score": float(f1),
-                "Accuracy": float(accuracy),
-            }
 
-    return best_metrics
+    # ------------------------------------------------------------
+    # 2. Evaluate validation performance using test-derived cutoff
+    # ------------------------------------------------------------
+    y_valid_pred = (y_valid_pred_prob >= best_cutoff).astype(int)
+
+    precision = precision_score(y_valid_true, y_valid_pred, zero_division=0)
+    recall = recall_score(y_valid_true, y_valid_pred, zero_division=0)
+    f1 = f1_score(y_valid_true, y_valid_pred, zero_division=0)
+    accuracy = accuracy_score(y_valid_true, y_valid_pred)
+
+    return {
+        "Cutoff": float(best_cutoff),
+        "Precision": float(precision),
+        "Recall": float(recall),
+        "F1 Score": float(f1),
+        "Accuracy": float(accuracy),
+    }
 
 
 def save_roc_curve(
