@@ -196,6 +196,16 @@ python scripts/run_preprocessing.py \
   --glucose-data input_data/glucose_data_example.xlsx \
   --output-csv outputs/preprocessed_data.csv
 ```
+## Example input data
+
+The `input_data/` directory contains synthetic example input files for testing the pipeline:
+
+- `input_data/cohort_data_example.csv`
+- `input_data/glucose_data_example.xlsx`
+
+These files are dummy data and do not contain real participant-level information. They are provided only to demonstrate the expected input format and to allow users to test whether the preprocessing and model-learning scripts run correctly.
+
+The original cohort data used in the study are not publicly distributed due to data-use restrictions and privacy considerations.
 
 ### 7.3. Optional preprocessing arguments
 
