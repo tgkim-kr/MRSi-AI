@@ -57,6 +57,11 @@ MRSi-AI/
 ├─ scripts/
 │  ├─ run_preprocessing.py
 │  └─ run_training.py
+├─ input_data/
+│  ├─ cohort_data_example.csv
+│  └─ glucose_data_example.xlsx
+├─ result_example/
+│  └─ ...
 ├─ requirements.txt
 └─ README.md
 ```
@@ -70,6 +75,8 @@ Module roles:
 - `model_learning/experiment.py`: experiment orchestration across feature groups, PCA modes, models, and ensemble evaluation.
 - `scripts/run_preprocessing.py`: command-line wrapper for preprocessing.
 - `scripts/run_training.py`: command-line wrapper for model training and evaluation.
+- `input_data/`: synthetic example input files for testing the pipeline.
+- `result_example/`: example output files from a completed run.
 
 ---
 
@@ -77,9 +84,9 @@ Module roles:
 
 The original cohort data used in this study are **not included** in this repository due to data-use restrictions and privacy considerations.
 
-The repository does not distribute the original individual-level data, dummy data, original variable names, or detailed input schema. Full end-to-end execution of the preprocessing and model-learning pipeline therefore requires authorized access to the original study data and the corresponding data specification.
+The repository includes synthetic example input files in `input_data/` only for testing the code pipeline. These files do not contain real participant-level information and do not reproduce the results reported in the study.
 
-This repository is intended to document and archive the source code used for preprocessing, feature engineering, data splitting, model training, and model evaluation. The public repository alone is not a fully executable reproduction package for users without access to the restricted study data.
+Full end-to-end reproduction of the study results requires authorized access to the original study data and the corresponding data specification. This repository is intended to document and archive the source code used for preprocessing, feature engineering, data splitting, model training, and model evaluation.
 
 ---
 
@@ -194,7 +201,7 @@ The original data and detailed schema are not distributed with this repository.
 python scripts/run_preprocessing.py \
   --cohort-data input_data/cohort_data_example.csv \
   --glucose-data input_data/glucose_data_example.xlsx \
-  --output-csv outputs/preprocessed_data.csv
+  --output-csv result/preprocessed_data.csv
 ```
 
 The `input_data/` directory contains synthetic example input files for testing the pipeline:
@@ -242,8 +249,10 @@ The preprocessing script saves an interval-level CSV file containing rows with a
 Example output:
 
 ```text
-outputs/preprocessed_data.csv
+result/preprocessed_data.csv
 ```
+
+The `result/` directory is created automatically when the preprocessing or training scripts are executed.
 
 ---
 
@@ -294,7 +303,7 @@ The split is performed at the participant level using the `rid` column to preven
 
 ```bash
 python scripts/run_training.py \
-  --input-csv outputs/preprocessed_data.csv \
+  --input-csv result/preprocessed_data.csv \
   --output-dir result \
   --data-type diag \
   --sampling over \
@@ -308,7 +317,7 @@ To run only classical machine-learning models:
 
 ```bash
 python scripts/run_training.py \
-  --input-csv outputs/preprocessed_data.csv \
+  --input-csv result/preprocessed_data.csv \
   --output-dir result \
   --models LR RF XGB LGBM \
   --n-jobs 3
@@ -344,7 +353,7 @@ To disable this removal, pass the flag with no values:
 
 ```bash
 python scripts/run_training.py \
-  --input-csv outputs/preprocessed_data.csv \
+  --input-csv result/preprocessed_data.csv \
   --drop-contains
 ```
 
@@ -391,6 +400,8 @@ result/auc_summary.csv
 ## 9. Outputs
 
 For each combination of feature group, PCA mode, and model, a structured directory is created under `result/`.
+
+The `result/` directory is generated at runtime. The repository can also include `result_example/` as a static example of previously generated outputs.
 
 Example layout:
 
@@ -470,7 +481,7 @@ from data_preprocessing import preprocess_asas_data
 preprocessed_df = preprocess_asas_data(
     cohort_data="path/to/cohort_data.sas7bdat",
     glucose_data="path/to/glucose_data.xlsx",
-    output_csv="outputs/preprocessed_data.csv",
+    output_csv="result/preprocessed_data.csv",
 )
 ```
 
@@ -480,7 +491,7 @@ Model learning:
 from model_learning import run_experiment
 
 result = run_experiment(
-    input_csv="outputs/preprocessed_data.csv",
+    input_csv="result/preprocessed_data.csv",
     output_dir="result",
     data_type="diag",
     sampling_method="over",
@@ -497,7 +508,8 @@ result = run_experiment(
 ## 11. Notes and limitations
 
 - The original cohort data are not distributed with this repository.
-- Full end-to-end reproduction requires authorized access to the original data and data specification.
+- Synthetic files in `input_data/` are provided only for pipeline testing and do not reproduce the study results.
+- Full end-to-end reproduction of the study results requires authorized access to the original data and data specification.
 - The default preprocessing behavior reproduces the original notebook-style missing-value handling. For leakage-free imputation workflows, use `--no-impute` and perform imputation after participant-level splitting.
 - The model-learning pipeline removes columns containing `ins`, `glu`, or `hba1c` by default.
 - XGBoost tree visualization can be slow and is disabled by default. Use `--save-xgb-trees` only when tree images are required.
