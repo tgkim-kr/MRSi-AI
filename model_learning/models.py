@@ -286,12 +286,21 @@ def LGBM(
     with (save_dir / "lgbm_model.pkl").open("wb") as f:
         pickle.dump(final_model, f)
 
+    y_pred_prob_test = final_model.predict(
+        x_test,
+        num_iteration=final_model.best_iteration,
+    )
     y_pred_prob = final_model.predict(
         x_validation,
         num_iteration=final_model.best_iteration,
     )
 
-    performance = find_best_cutoff(y_validation, y_pred_prob)
+    performance = find_best_cutoff(
+        y_test_true=y_test,
+        y_test_pred_prob=y_pred_prob_test,
+        y_valid_true=y_validation,
+        y_valid_pred_prob=y_pred_prob,
+    )
     roc_auc = roc_auc_score(y_validation, y_pred_prob)
     importance = _extract_lgbm_feature_importance(final_model, x_train)
 
@@ -456,8 +465,15 @@ def XGB(
     with (save_dir / "xgb_model.pkl").open("wb") as f:
         pickle.dump(final_model, f)
 
+    y_pred_prob_test = final_model.predict_proba(x_test)[:, 1]
     y_pred_prob = final_model.predict_proba(x_validation)[:, 1]
-    performance = find_best_cutoff(y_validation, y_pred_prob)
+
+    performance = find_best_cutoff(
+        y_test_true=y_test,
+        y_test_pred_prob=y_pred_prob_test,
+        y_valid_true=y_validation,
+        y_valid_pred_prob=y_pred_prob,
+    )
     roc_auc = roc_auc_score(y_validation, y_pred_prob)
 
     importance_scores = final_model.feature_importances_
@@ -609,8 +625,15 @@ def LR(
     with (save_dir / "lr_model.pkl").open("wb") as f:
         pickle.dump(final_model, f)
 
+    y_pred_prob_test = final_model.predict_proba(x_test)[:, 1]
     y_pred_prob = final_model.predict_proba(x_validation)[:, 1]
-    performance = find_best_cutoff(y_validation, y_pred_prob)
+
+    performance = find_best_cutoff(
+        y_test_true=y_test,
+        y_test_pred_prob=y_pred_prob_test,
+        y_valid_true=y_validation,
+        y_valid_pred_prob=y_pred_prob,
+    )
     roc_auc = roc_auc_score(y_validation, y_pred_prob)
 
     if make_plots:
@@ -723,8 +746,15 @@ def RF(
     with (save_dir / "rf_model.pkl").open("wb") as f:
         pickle.dump(final_model, f)
 
+    y_pred_prob_test = final_model.predict_proba(x_test)[:, 1]
     y_pred_prob = final_model.predict_proba(x_validation)[:, 1]
-    performance = find_best_cutoff(y_validation, y_pred_prob)
+
+    performance = find_best_cutoff(
+        y_test_true=y_test,
+        y_test_pred_prob=y_pred_prob_test,
+        y_valid_true=y_validation,
+        y_valid_pred_prob=y_pred_prob,
+    )
     roc_auc = roc_auc_score(y_validation, y_pred_prob)
 
     importances = final_model.feature_importances_
@@ -868,8 +898,15 @@ def ANN(
 
     final_model.save(save_dir / "ann_model.keras")
 
+    y_pred_prob_test = final_model.predict(x_test, verbose=0).flatten()
     y_pred_prob = final_model.predict(x_validation, verbose=0).flatten()
-    performance = find_best_cutoff(y_validation, y_pred_prob)
+
+    performance = find_best_cutoff(
+        y_test_true=y_test,
+        y_test_pred_prob=y_pred_prob_test,
+        y_valid_true=y_validation,
+        y_valid_pred_prob=y_pred_prob,
+    )
     roc_auc = roc_auc_score(y_validation, y_pred_prob)
 
     if make_plots:
@@ -1037,8 +1074,15 @@ def RNN(
 
     final_model.save(save_dir / "rnn_model.keras")
 
+    y_pred_prob_test = final_model.predict(x_test, verbose=0).flatten()
     y_pred_prob = final_model.predict(x_validation, verbose=0).flatten()
-    performance = find_best_cutoff(y_validation, y_pred_prob)
+
+    performance = find_best_cutoff(
+        y_test_true=y_test,
+        y_test_pred_prob=y_pred_prob_test,
+        y_valid_true=y_validation,
+        y_valid_pred_prob=y_pred_prob,
+    )
     roc_auc = roc_auc_score(y_validation, y_pred_prob)
 
     if make_plots:
