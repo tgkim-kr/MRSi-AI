@@ -168,6 +168,7 @@ def run_models_for_combo(
 
     combo_result = {}
     pred_dict = {}
+    pred_test_dict = {}
 
     x_train, y_train, x_test, y_test, x_validation, y_validation = prepare_combo_data(
         features_name,
@@ -186,7 +187,7 @@ def run_models_for_combo(
         model_func = MODEL_REGISTRY[model_name]
         model_save_dir = ensure_dir(output_dir / features_name / pca_name / model_name)
 
-        auc_test, auc_validation, params, y_pred_prob, performance, importance = _call_model(
+        auc_test, auc_validation, params, y_pred_prob_test, y_pred_prob, performance, importance = _call_model(
             model_name,
             model_func,
             x_train,
@@ -214,7 +215,19 @@ def run_models_for_combo(
                 f"y_validation: {len(y_validation_array)}"
             )
 
+        y_pred_prob_test = np.asarray(y_pred_prob_test).reshape(-1)
+        y_test_array = np.asarray(y_test).reshape(-1)
+
+        if len(y_pred_prob_test) != len(y_test_array):
+            raise ValueError(
+                f"[{features_name}-{pca_name}-{model_name}] test prediction length "
+                f"does not match y_test length. "
+                f"prediction: {y_pred_prob_test.shape}, "
+                f"y_test: {len(y_test_array)}"
+            )
+
         pred_dict[model_name] = y_pred_prob
+        pred_test_dict[model_name] = y_pred_prob_test
 
         combo_result[model_name] = {
             "auc_test": auc_test,
@@ -229,6 +242,8 @@ def run_models_for_combo(
         "pca": pca_name,
         "result": combo_result,
         "pred_dict": pred_dict,
+        "pred_test_dict": pred_test_dict,
+        "y_test": np.asarray(y_test).reshape(-1),
         "y_validation": np.asarray(y_validation).reshape(-1),
     }
 
@@ -238,6 +253,8 @@ def add_ensemble_result(
     pca_name: str,
     combo_result: dict,
     pred_dict: dict,
+    pred_test_dict: dict,
+    y_test,
     y_validation,
     model_names: Iterable[str],
     *,
@@ -251,32 +268,49 @@ def add_ensemble_result(
     save_dir = ensure_dir(output_dir / features_name / pca_name / "Ensemble")
 
     model_names = list(model_names)
-    missing_models = [model_name for model_name in model_names if model_name not in pred_dict]
+    missing_valid_models = [
+        model_name for model_name in model_names if model_name not in pred_dict
+    ]
+    missing_test_models = [
+        model_name for model_name in model_names if model_name not in pred_test_dict
+    ]
 
-    if missing_models:
+    if missing_valid_models or missing_test_models:
         raise ValueError(
-            f"[{features_name}-{pca_name}] Ensemble predictions are missing "
-            f"for models: {missing_models}"
+            f"[{features_name}-{pca_name}] Ensemble predictions are missing. "
+            f"validation missing: {missing_valid_models}; "
+            f"test missing: {missing_test_models}"
         )
 
+    y_test = np.asarray(y_test).reshape(-1)
     y_validation = np.asarray(y_validation).reshape(-1)
 
-    ensemble_pred_list = []
+    ensemble_pred_test_list = []
+    ensemble_pred_valid_list = []
 
     for model_name in model_names:
-        y_pred_prob = np.asarray(pred_dict[model_name]).reshape(-1)
+        y_pred_prob_test = np.asarray(pred_test_dict[model_name]).reshape(-1)
+        y_pred_prob_valid = np.asarray(pred_dict[model_name]).reshape(-1)
 
-        if len(y_pred_prob) != len(y_validation):
+        if len(y_pred_prob_test) != len(y_test):
             raise ValueError(
-                f"[{features_name}-{pca_name}-{model_name}] Ensemble prediction "
-                f"length mismatch. prediction: {y_pred_prob.shape}, "
+                f"[{features_name}-{pca_name}-{model_name}] Ensemble test prediction "
+                f"length mismatch. prediction: {y_pred_prob_test.shape}, "
+                f"y_test: {len(y_test)}"
+            )
+
+        if len(y_pred_prob_valid) != len(y_validation):
+            raise ValueError(
+                f"[{features_name}-{pca_name}-{model_name}] Ensemble validation prediction "
+                f"length mismatch. prediction: {y_pred_prob_valid.shape}, "
                 f"y_validation: {len(y_validation)}"
             )
 
-        ensemble_pred_list.append(y_pred_prob)
+        ensemble_pred_test_list.append(y_pred_prob_test)
+        ensemble_pred_valid_list.append(y_pred_prob_valid)
 
-    ensemble_pred_array = np.vstack(ensemble_pred_list)
-    y_pred_prob = ensemble_pred_array.mean(axis=0)
+    y_pred_prob_test = np.vstack(ensemble_pred_test_list).mean(axis=0)
+    y_pred_prob = np.vstack(ensemble_pred_valid_list).mean(axis=0)
 
     performance = find_best_cutoff(
         y_test_true=y_test,
@@ -290,13 +324,15 @@ def add_ensemble_result(
         save_dir / "ROC_curve.jpg",
     ) if make_plots else float("nan")
 
-    if not make_plots:
-        from sklearn.metrics import roc_auc_score
+    from sklearn.metrics import roc_auc_score
 
+    auc_test = float(roc_auc_score(y_test, y_pred_prob_test))
+
+    if not make_plots:
         roc_auc = float(roc_auc_score(y_validation, y_pred_prob))
 
     combo_result["Ensemble"] = {
-        "auc_test": 0,
+        "auc_test": auc_test,
         "auc_validation": roc_auc,
         "performance": performance,
         "importance": {},
@@ -455,6 +491,8 @@ def run_experiment(
         result_pack[key] = {
             "result": item["result"],
             "pred_dict": item["pred_dict"],
+            "pred_test_dict": item["pred_test_dict"],
+            "y_test": item["y_test"],
             "y_validation": item["y_validation"],
         }
 
@@ -477,8 +515,22 @@ def run_experiment(
 
         key = (features_name, pca_name)
 
+        y_test_cpu = np.asarray(result_pack[key]["y_test"]).reshape(-1)
+        y_test_gpu = np.asarray(gpu_item["y_test"]).reshape(-1)
         y_val_cpu = np.asarray(result_pack[key]["y_validation"]).reshape(-1)
         y_val_gpu = np.asarray(gpu_item["y_validation"]).reshape(-1)
+
+        if len(y_test_cpu) != len(y_test_gpu):
+            raise ValueError(
+                f"[{features_name}-{pca_name}] CPU/GPU y_test lengths differ. "
+                f"CPU: {len(y_test_cpu)}, GPU: {len(y_test_gpu)}"
+            )
+
+        if not np.array_equal(y_test_cpu, y_test_gpu):
+            raise ValueError(
+                f"[{features_name}-{pca_name}] CPU/GPU y_test values differ. "
+                "The data split is not deterministic across runs."
+            )
 
         if len(y_val_cpu) != len(y_val_gpu):
             raise ValueError(
@@ -494,6 +546,7 @@ def run_experiment(
 
         result_pack[key]["result"].update(gpu_item["result"])
         result_pack[key]["pred_dict"].update(gpu_item["pred_dict"])
+        result_pack[key]["pred_test_dict"].update(gpu_item["pred_test_dict"])
 
     for features_name, pca_name in tasks:
         key = (features_name, pca_name)
@@ -503,6 +556,8 @@ def run_experiment(
             pca_name=pca_name,
             combo_result=result_pack[key]["result"],
             pred_dict=result_pack[key]["pred_dict"],
+            pred_test_dict=result_pack[key]["pred_test_dict"],
+            y_test=result_pack[key]["y_test"],
             y_validation=result_pack[key]["y_validation"],
             model_names=all_models,
             output_dir=output_dir,
