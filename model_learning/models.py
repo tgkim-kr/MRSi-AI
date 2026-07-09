@@ -349,7 +349,7 @@ def LGBM(
     best_params_return["num_iterations"] = best_num_iterations
     best_params_return["best_iteration"] = final_model.best_iteration
 
-    return best_auc, float(roc_auc), best_params_return, y_pred_prob, performance, importance
+    return best_auc, float(roc_auc), best_params_return, y_pred_prob_test, y_pred_prob, performance, importance
 
 
 def XGB(
@@ -546,7 +546,7 @@ def XGB(
             with tree_txt_path.open("w", encoding="utf-8") as f:
                 f.write(tree)
 
-    return best_auc, float(roc_auc), best_params, y_pred_prob, performance, importance
+    return best_auc, float(roc_auc), best_params, y_pred_prob_test, y_pred_prob, performance, importance
 
 
 def LR(
@@ -657,7 +657,7 @@ def LR(
         for feature, weight, p_val in zip(feature_names, coef, p_values)
     }
 
-    return best_auc, float(roc_auc), best_params, y_pred_prob, performance, importance
+    return best_auc, float(roc_auc), best_params, y_pred_prob_test, y_pred_prob, performance, importance
 
 
 def RF(
@@ -775,7 +775,7 @@ def RF(
         plt.savefig(save_dir / "feature_importance.jpg", dpi=500, bbox_inches="tight")
         plt.close()
 
-    return best_auc, float(roc_auc), best_params, y_pred_prob, performance, importance
+    return best_auc, float(roc_auc), best_params, y_pred_prob_test, y_pred_prob, performance, importance
 
 
 def ANN(
@@ -914,7 +914,7 @@ def ANN(
 
     importance = {}
 
-    return best_auc, float(roc_auc), best_params, y_pred_prob, performance, importance
+    return best_auc, float(roc_auc), best_params, y_pred_prob_test, y_pred_prob, performance, importance
 
 
 def RNN(
@@ -1090,7 +1090,7 @@ def RNN(
 
     importance = {}
 
-    return best_auc, float(roc_auc), best_params, y_pred_prob, performance, importance
+    return best_auc, float(roc_auc), best_params, y_pred_prob_test, y_pred_prob, performance, importance
 
 
 MODEL_REGISTRY = {
