@@ -69,7 +69,7 @@ MRSi-AI/
 Module roles:
 
 - `data_preprocessing/preprocessing.py`: converts raw longitudinal cohort files into interval-level examples.
-- `model_learning/feature_engineering.py`: feature-set selection, PCA feature construction, and participant-level train/test/validation splitting.
+- `model_learning/feature_engineering.py`: feature-set selection, PCA feature construction, and participant-level train/validation/test splitting.
 - `model_learning/utils.py`: shared metrics, plotting, JSON serialization, and filesystem utilities.
 - `model_learning/models.py`: LR, RF, XGB, LGBM, ANN, and RNN training functions.
 - `model_learning/experiment.py`: experiment orchestration across feature groups, PCA modes, models, and ensemble evaluation.
@@ -109,9 +109,9 @@ The workflow is:
   - Optionally filter by `data_type`, such as `diag` or `drug`.
   - Drop diagnostic glycemic markers and related insulin/glucose variables by default.
   - Apply selected feature group and PCA mode.
-  - Split data into train/test/validation sets at the participant level using `rid`.
+  - Split data into train/validation/test sets at the participant level using `rid`.
   - Train LR, RF, XGB, LGBM, ANN, and/or RNN models.
-  - Add an ensemble model based on averaged validation probabilities.
+  - Add an ensemble model based on averaged predicted probabilities from the selected models.
   - Save metrics, plots, selected hyperparameters, model artifacts, and summary files.
 
 <img width="5005" height="5310" alt="flow" src="https://github.com/user-attachments/assets/3131755e-eb8b-4be8-bcbd-0e40b3fe1bce" />
@@ -225,7 +225,7 @@ Divide raw `V1_INCOME`-`V10_INCOME` values by 10,000 before preprocessing. Use t
 --no-impute
 ```
 
-Disable final imputation in the interval-level dataframe. This is useful if imputation will be performed after train/test/validation splitting.
+Disable final imputation in the interval-level dataframe. This is useful if imputation will be performed after train/validation/test splitting.
 
 ```bash
 --keep-drug-missing-baseline
@@ -258,7 +258,7 @@ The `result/` directory is created automatically when the preprocessing or train
 
 ## 8. Model training
 
-The training pipeline evaluates multiple model families with consistent feature selection, PCA construction, participant-level splitting, and validation evaluation.
+The training pipeline evaluates multiple model families with consistent feature selection, PCA construction, participant-level splitting, validation-based tuning, and held-out test evaluation.
 
 ### 8.1. Supported models
 
@@ -297,7 +297,7 @@ Use the `--sampling` argument:
 - `over` — oversample positive cases within each split
 - `none` — no resampling
 
-The split is performed at the participant level using the `rid` column to prevent the same participant from appearing in more than one split. The default split ratio is 80% train, 10% test, and 10% validation.
+The split is performed at the participant level using the `rid` column to prevent the same participant from appearing in more than one split. The default split ratio is 80% train, 10% validation, and 10% test.
 
 ### 8.5. Quick test command
 
@@ -411,7 +411,7 @@ result/result.json
 --summary-csv path/to/auc_summary.csv
 ```
 
-Set a custom path for the validation-AUC summary CSV file. If omitted, the default is:
+Set a custom path for the test-AUC summary CSV file. If omitted, the default is:
 
 ```text
 result/auc_summary.csv
@@ -481,13 +481,13 @@ result/
 
 `result.json` contains the nested model results, including:
 
-- Test AUROC
-- Validation AUROC
-- F1-optimized cutoff and associated metrics
+- Validation AUROC used for hyperparameter selection
+- Test AUROC used for final evaluation
+- Validation-derived F1-optimized cutoff and associated test-set metrics
 - Feature importance, where available
 - Selected hyperparameters
 
-`auc_summary.csv` contains a flattened validation-AUC ranking across feature groups, PCA modes, and models.
+`auc_summary.csv` contains a flattened test-AUC ranking across feature groups, PCA modes, and models.
 
 ---
 
