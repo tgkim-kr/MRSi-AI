@@ -71,8 +71,8 @@ def _require_tensorflow():
 
 def _one_hot_align(
     x_train: pd.DataFrame,
-    x_test: pd.DataFrame,
     x_validation: pd.DataFrame,
+    x_test: pd.DataFrame,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     One-hot encode categorical columns using a combined column space.
@@ -80,8 +80,8 @@ def _one_hot_align(
     combined = pd.concat(
         [
             x_train.copy().assign(__split__="train"),
-            x_test.copy().assign(__split__="test"),
             x_validation.copy().assign(__split__="validation"),
+            x_test.copy().assign(__split__="test"),
         ],
         axis=0,
     )
@@ -102,27 +102,27 @@ def _one_hot_align(
         .drop(columns=["__split__"])
         .astype("float32")
     )
-    x_test_encoded = (
-        combined[combined["__split__"] == "test"]
-        .drop(columns=["__split__"])
-        .astype("float32")
-    )
     x_validation_encoded = (
         combined[combined["__split__"] == "validation"]
         .drop(columns=["__split__"])
         .astype("float32")
     )
+    x_test_encoded = (
+        combined[combined["__split__"] == "test"]
+        .drop(columns=["__split__"])
+        .astype("float32")
+    )
 
-    return x_train_encoded, x_test_encoded, x_validation_encoded
+    return x_train_encoded, x_validation_encoded, x_test_encoded
 
 
 def _align_categorical_columns_for_boosting(
     x_train: pd.DataFrame,
-    x_test: pd.DataFrame,
     x_validation: pd.DataFrame,
+    x_test: pd.DataFrame,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
-    Align category levels across train/test/validation for categorical boosting.
+    Align category levels across train/validation/test for categorical boosting.
 
     XGBoost and LightGBM can use pandas category dtype, but category columns
     should have consistent categories across splits.
@@ -130,8 +130,8 @@ def _align_categorical_columns_for_boosting(
     combined = pd.concat(
         [
             x_train.copy().assign(__split__="train"),
-            x_test.copy().assign(__split__="test"),
             x_validation.copy().assign(__split__="validation"),
+            x_test.copy().assign(__split__="test"),
         ],
         axis=0,
     )
@@ -145,10 +145,10 @@ def _align_categorical_columns_for_boosting(
         combined[col] = combined[col].astype("object").astype("category")
 
     x_train_aligned = combined[combined["__split__"] == "train"].drop(columns=["__split__"])
-    x_test_aligned = combined[combined["__split__"] == "test"].drop(columns=["__split__"])
     x_validation_aligned = combined[combined["__split__"] == "validation"].drop(columns=["__split__"])
+    x_test_aligned = combined[combined["__split__"] == "test"].drop(columns=["__split__"])
 
-    return x_train_aligned, x_test_aligned, x_validation_aligned
+    return x_train_aligned, x_validation_aligned, x_test_aligned
 
 
 def _extract_lgbm_feature_importance(final_model: Any, x_train: pd.DataFrame) -> dict[str, float]:
@@ -162,10 +162,10 @@ def _extract_lgbm_feature_importance(final_model: Any, x_train: pd.DataFrame) ->
 def LGBM(
     x_train,
     y_train,
-    x_test,
-    y_test,
     x_validation,
     y_validation,
+    x_test,
+    y_test,
     *,
     save_dir,
     random_state=123,
@@ -178,14 +178,14 @@ def LGBM(
     lgb = _require_lightgbm()
     save_dir = ensure_dir(save_dir)
 
-    x_train, x_test, x_validation = _align_categorical_columns_for_boosting(
+    x_train, x_validation, x_test = _align_categorical_columns_for_boosting(
         x_train,
-        x_test,
         x_validation,
+        x_test,
     )
 
     train_data = lgb.Dataset(x_train, label=y_train)
-    test_data = lgb.Dataset(x_test, label=y_test, reference=train_data)
+    validation_data = lgb.Dataset(x_validation, label=y_validation, reference=train_data)
 
     learning_rate_list = [0.01]#, 0.1
     max_depth_list = [5]#, 30
@@ -229,8 +229,8 @@ def LGBM(
                                         params,
                                         train_data,
                                         num_boost_round=num_iterations,
-                                        valid_sets=[test_data],
-                                        valid_names=["test"],
+                                        valid_sets=[validation_data],
+                                        valid_names=["validation"],
                                         callbacks=[
                                             lgb.early_stopping(
                                                 stopping_rounds=10,
@@ -240,11 +240,11 @@ def LGBM(
                                         ],
                                     )
 
-                                    y_pred_prob_test = model.predict(
-                                        x_test,
+                                    y_pred_prob_validation = model.predict(
+                                        x_validation,
                                         num_iteration=model.best_iteration,
                                     )
-                                    auc_test = roc_auc_score(y_test, y_pred_prob_test)
+                                    auc_validation = roc_auc_score(y_validation, y_pred_prob_validation)
 
                                     param_list.append({
                                         "learning_rate": learning_rate,
@@ -255,11 +255,11 @@ def LGBM(
                                         "num_iterations": num_iterations,
                                         "lambda_l1": lambda_l1,
                                         "lambda_l2": lambda_l2,
-                                        "AUC": float(auc_test),
+                                        "AUC": float(auc_validation),
                                     })
 
-                                    if auc_test > best_auc:
-                                        best_auc = float(auc_test)
+                                    if auc_validation > best_auc:
+                                        best_auc = float(auc_validation)
                                         best_params = params.copy()
                                         best_num_iterations = num_iterations
 
@@ -275,8 +275,8 @@ def LGBM(
         best_params,
         train_data,
         num_boost_round=best_num_iterations,
-        valid_sets=[test_data],
-        valid_names=["test"],
+        valid_sets=[validation_data],
+        valid_names=["validation"],
         callbacks=[
             lgb.early_stopping(stopping_rounds=10, verbose=False),
             lgb.log_evaluation(period=0),
@@ -286,26 +286,27 @@ def LGBM(
     with (save_dir / "lgbm_model.pkl").open("wb") as f:
         pickle.dump(final_model, f)
 
+    y_pred_prob_validation = final_model.predict(
+        x_validation,
+        num_iteration=final_model.best_iteration,
+    )
     y_pred_prob_test = final_model.predict(
         x_test,
         num_iteration=final_model.best_iteration,
     )
-    y_pred_prob = final_model.predict(
-        x_validation,
-        num_iteration=final_model.best_iteration,
-    )
 
     performance = find_best_cutoff(
-        y_test_true=y_test,
-        y_test_pred_prob=y_pred_prob_test,
-        y_valid_true=y_validation,
-        y_valid_pred_prob=y_pred_prob,
+        # Select the cutoff on validation data, then evaluate metrics on test data.
+        y_validation,
+        y_pred_prob_validation,
+        y_test,
+        y_pred_prob_test,
     )
-    roc_auc = roc_auc_score(y_validation, y_pred_prob)
+    roc_auc = roc_auc_score(y_test, y_pred_prob_test)
     importance = _extract_lgbm_feature_importance(final_model, x_train)
 
     if make_plots:
-        save_roc_curve(y_validation, y_pred_prob, save_dir / "ROC_curve.jpg")
+        save_roc_curve(y_test, y_pred_prob_test, save_dir / "ROC_curve.jpg")
 
         feature_importance = pd.DataFrame({
             "Feature": x_train.columns,
@@ -332,7 +333,7 @@ def LGBM(
         shap = _require_shap()
         try:
             explainer = shap.TreeExplainer(final_model)
-            shap_values = explainer(x_validation)
+            shap_values = explainer(x_test)
 
             fig = plt.figure(figsize=(10, 6))
             shap.plots.beeswarm(shap_values, show=False, max_display=20)
@@ -349,16 +350,16 @@ def LGBM(
     best_params_return["num_iterations"] = best_num_iterations
     best_params_return["best_iteration"] = final_model.best_iteration
 
-    return best_auc, float(roc_auc), best_params_return, y_pred_prob_test, y_pred_prob, performance, importance
+    return best_auc, float(roc_auc), best_params_return, y_pred_prob_validation, y_pred_prob_test, performance, importance
 
 
 def XGB(
     x_train,
     y_train,
-    x_test,
-    y_test,
     x_validation,
     y_validation,
+    x_test,
+    y_test,
     *,
     save_dir,
     random_state=123,
@@ -373,10 +374,10 @@ def XGB(
     xgb = _require_xgboost()
     save_dir = ensure_dir(save_dir)
 
-    x_train, x_test, x_validation = _align_categorical_columns_for_boosting(
+    x_train, x_validation, x_test = _align_categorical_columns_for_boosting(
         x_train,
-        x_test,
         x_validation,
+        x_test,
     )
 
     if run_label is None:
@@ -424,12 +425,12 @@ def XGB(
                                 model.fit(
                                     x_train,
                                     y_train,
-                                    eval_set=[(x_test, y_test)],
+                                    eval_set=[(x_validation, y_validation)],
                                     verbose=False,
                                 )
 
-                                y_pred_prob_test = model.predict_proba(x_test)[:, 1]
-                                auc_test = roc_auc_score(y_test, y_pred_prob_test)
+                                y_pred_prob_validation = model.predict_proba(x_validation)[:, 1]
+                                auc_validation = roc_auc_score(y_validation, y_pred_prob_validation)
 
                                 param_list.append({
                                     "learning_rate": learning_rate,
@@ -439,11 +440,11 @@ def XGB(
                                     "subsample": subsample,
                                     "reg_lambda": reg_lambda,
                                     "reg_alpha": reg_alpha,
-                                    "AUC": float(auc_test),
+                                    "AUC": float(auc_validation),
                                 })
 
-                                if auc_test > best_auc:
-                                    best_auc = float(auc_test)
+                                if auc_validation > best_auc:
+                                    best_auc = float(auc_validation)
                                     best_params = params.copy()
 
     if best_params is None:
@@ -458,23 +459,24 @@ def XGB(
     final_model.fit(
         x_train,
         y_train,
-        eval_set=[(x_test, y_test)],
+        eval_set=[(x_validation, y_validation)],
         verbose=False,
     )
 
     with (save_dir / "xgb_model.pkl").open("wb") as f:
         pickle.dump(final_model, f)
 
+    y_pred_prob_validation = final_model.predict_proba(x_validation)[:, 1]
     y_pred_prob_test = final_model.predict_proba(x_test)[:, 1]
-    y_pred_prob = final_model.predict_proba(x_validation)[:, 1]
 
     performance = find_best_cutoff(
-        y_test_true=y_test,
-        y_test_pred_prob=y_pred_prob_test,
-        y_valid_true=y_validation,
-        y_valid_pred_prob=y_pred_prob,
+        # Select the cutoff on validation data, then evaluate metrics on test data.
+        y_validation,
+        y_pred_prob_validation,
+        y_test,
+        y_pred_prob_test,
     )
-    roc_auc = roc_auc_score(y_validation, y_pred_prob)
+    roc_auc = roc_auc_score(y_test, y_pred_prob_test)
 
     importance_scores = final_model.feature_importances_
     importance = {
@@ -483,7 +485,7 @@ def XGB(
     }
 
     if make_plots:
-        save_roc_curve(y_validation, y_pred_prob, save_dir / "ROC_curve.jpg")
+        save_roc_curve(y_test, y_pred_prob_test, save_dir / "ROC_curve.jpg")
 
         plt.figure(figsize=(50, 30))
         xgb.plot_importance(final_model)
@@ -493,7 +495,7 @@ def XGB(
 
     if make_shap:
         try:
-            x_shap = x_validation.copy()
+            x_shap = x_test.copy()
 
             if len(x_shap) > 1000:
                 x_shap = x_shap.sample(n=1000, random_state=random_state)
@@ -546,16 +548,16 @@ def XGB(
             with tree_txt_path.open("w", encoding="utf-8") as f:
                 f.write(tree)
 
-    return best_auc, float(roc_auc), best_params, y_pred_prob_test, y_pred_prob, performance, importance
+    return best_auc, float(roc_auc), best_params, y_pred_prob_validation, y_pred_prob_test, performance, importance
 
 
 def LR(
     x_train,
     y_train,
-    x_test,
-    y_test,
     x_validation,
     y_validation,
+    x_test,
+    y_test,
     *,
     save_dir,
     random_state=123,
@@ -566,7 +568,7 @@ def LR(
     """
     save_dir = ensure_dir(save_dir)
 
-    x_train, x_test, x_validation = _one_hot_align(x_train, x_test, x_validation)
+    x_train, x_validation, x_test = _one_hot_align(x_train, x_validation, x_test)
 
     C_list = [1.0]#, 0.001, 0.01, 0.1, 10.0
     penalty_list = ["l1"]#, "l2"
@@ -588,17 +590,17 @@ def LR(
                 )
                 model.fit(x_train, y_train)
 
-                y_pred_prob_test = model.predict_proba(x_test)[:, 1]
-                auc_test = roc_auc_score(y_test, y_pred_prob_test)
+                y_pred_prob_validation = model.predict_proba(x_validation)[:, 1]
+                auc_validation = roc_auc_score(y_validation, y_pred_prob_validation)
 
                 param_list.append({
                     "C": C,
                     "penalty": penalty,
-                    "AUC": float(auc_test),
+                    "AUC": float(auc_validation),
                 })
 
-                if auc_test > best_auc:
-                    best_auc = float(auc_test)
+                if auc_validation > best_auc:
+                    best_auc = float(auc_validation)
                     best_params = {"C": C, "penalty": penalty}
 
             except Exception as exc:
@@ -625,19 +627,20 @@ def LR(
     with (save_dir / "lr_model.pkl").open("wb") as f:
         pickle.dump(final_model, f)
 
+    y_pred_prob_validation = final_model.predict_proba(x_validation)[:, 1]
     y_pred_prob_test = final_model.predict_proba(x_test)[:, 1]
-    y_pred_prob = final_model.predict_proba(x_validation)[:, 1]
 
     performance = find_best_cutoff(
-        y_test_true=y_test,
-        y_test_pred_prob=y_pred_prob_test,
-        y_valid_true=y_validation,
-        y_valid_pred_prob=y_pred_prob,
+        # Select the cutoff on validation data, then evaluate metrics on test data.
+        y_validation,
+        y_pred_prob_validation,
+        y_test,
+        y_pred_prob_test,
     )
-    roc_auc = roc_auc_score(y_validation, y_pred_prob)
+    roc_auc = roc_auc_score(y_test, y_pred_prob_test)
 
     if make_plots:
-        save_roc_curve(y_validation, y_pred_prob, save_dir / "ROC_curve.jpg")
+        save_roc_curve(y_test, y_pred_prob_test, save_dir / "ROC_curve.jpg")
 
     coef = final_model.coef_[0]
     feature_names = x_train.columns
@@ -657,16 +660,16 @@ def LR(
         for feature, weight, p_val in zip(feature_names, coef, p_values)
     }
 
-    return best_auc, float(roc_auc), best_params, y_pred_prob_test, y_pred_prob, performance, importance
+    return best_auc, float(roc_auc), best_params, y_pred_prob_validation, y_pred_prob_test, performance, importance
 
 
 def RF(
     x_train,
     y_train,
-    x_test,
-    y_test,
     x_validation,
     y_validation,
+    x_test,
+    y_test,
     *,
     save_dir,
     random_state=123,
@@ -678,7 +681,7 @@ def RF(
     """
     save_dir = ensure_dir(save_dir)
 
-    x_train, x_test, x_validation = _one_hot_align(x_train, x_test, x_validation)
+    x_train, x_validation, x_test = _one_hot_align(x_train, x_validation, x_test)
 
     n_estimators_list = [50]#, 100, 200
     max_depth_list = [5]#, 10, 30, None
@@ -704,19 +707,19 @@ def RF(
 
                     model.fit(x_train, y_train)
 
-                    y_pred_prob_test = model.predict_proba(x_test)[:, 1]
-                    auc_test = roc_auc_score(y_test, y_pred_prob_test)
+                    y_pred_prob_validation = model.predict_proba(x_validation)[:, 1]
+                    auc_validation = roc_auc_score(y_validation, y_pred_prob_validation)
 
                     param_list.append({
                         "n_estimators": n_estimators,
                         "max_depth": max_depth,
                         "min_samples_split": min_samples_split,
                         "min_samples_leaf": min_samples_leaf,
-                        "AUC": float(auc_test),
+                        "AUC": float(auc_validation),
                     })
 
-                    if auc_test > best_auc:
-                        best_auc = float(auc_test)
+                    if auc_validation > best_auc:
+                        best_auc = float(auc_validation)
                         best_params = {
                             "n_estimators": n_estimators,
                             "max_depth": max_depth,
@@ -746,16 +749,17 @@ def RF(
     with (save_dir / "rf_model.pkl").open("wb") as f:
         pickle.dump(final_model, f)
 
+    y_pred_prob_validation = final_model.predict_proba(x_validation)[:, 1]
     y_pred_prob_test = final_model.predict_proba(x_test)[:, 1]
-    y_pred_prob = final_model.predict_proba(x_validation)[:, 1]
 
     performance = find_best_cutoff(
-        y_test_true=y_test,
-        y_test_pred_prob=y_pred_prob_test,
-        y_valid_true=y_validation,
-        y_valid_pred_prob=y_pred_prob,
+        # Select the cutoff on validation data, then evaluate metrics on test data.
+        y_validation,
+        y_pred_prob_validation,
+        y_test,
+        y_pred_prob_test,
     )
-    roc_auc = roc_auc_score(y_validation, y_pred_prob)
+    roc_auc = roc_auc_score(y_test, y_pred_prob_test)
 
     importances = final_model.feature_importances_
     feature_names = x_train.columns
@@ -765,7 +769,7 @@ def RF(
     }
 
     if make_plots:
-        save_roc_curve(y_validation, y_pred_prob, save_dir / "ROC_curve.jpg")
+        save_roc_curve(y_test, y_pred_prob_test, save_dir / "ROC_curve.jpg")
 
         plt.figure(figsize=(10, 6))
         sns.barplot(x=importances, y=feature_names)
@@ -775,16 +779,16 @@ def RF(
         plt.savefig(save_dir / "feature_importance.jpg", dpi=500, bbox_inches="tight")
         plt.close()
 
-    return best_auc, float(roc_auc), best_params, y_pred_prob_test, y_pred_prob, performance, importance
+    return best_auc, float(roc_auc), best_params, y_pred_prob_validation, y_pred_prob_test, performance, importance
 
 
 def ANN(
     x_train,
     y_train,
-    x_test,
-    y_test,
     x_validation,
     y_validation,
+    x_test,
+    y_test,
     *,
     save_dir,
     random_state=123,
@@ -799,11 +803,11 @@ def ANN(
     tf.random.set_seed(random_state)
     np.random.seed(random_state)
 
-    x_train, x_test, x_validation = _one_hot_align(x_train, x_test, x_validation)
+    x_train, x_validation, x_test = _one_hot_align(x_train, x_validation, x_test)
 
     y_train = np.asarray(y_train).astype("float32")
-    y_test = np.asarray(y_test).astype("float32")
     y_validation = np.asarray(y_validation).astype("float32")
+    y_test = np.asarray(y_test).astype("float32")
 
     hidden_units_list = [64]#, 256
     hidden_layers_list = [1]#, 3
@@ -837,25 +841,25 @@ def ANN(
                     model.fit(
                         x_train,
                         y_train,
-                        validation_data=(x_test, y_test),
+                        validation_data=(x_validation, y_validation),
                         epochs=50,
                         batch_size=batch_size,
                         verbose=0,
                     )
 
-                    y_pred_prob_test = model.predict(x_test, verbose=0).flatten()
-                    auc_test = roc_auc_score(y_test, y_pred_prob_test)
+                    y_pred_prob_validation = model.predict(x_validation, verbose=0).flatten()
+                    auc_validation = roc_auc_score(y_validation, y_pred_prob_validation)
 
                     param_list.append({
                         "hidden_units": hidden_units,
                         "hidden_layers": hidden_layers,
                         "learning_rate": learning_rate,
                         "batch_size": batch_size,
-                        "AUC": float(auc_test),
+                        "AUC": float(auc_validation),
                     })
 
-                    if auc_test > best_auc:
-                        best_auc = float(auc_test)
+                    if auc_validation > best_auc:
+                        best_auc = float(auc_validation)
                         best_params = {
                             "hidden_units": hidden_units,
                             "hidden_layers": hidden_layers,
@@ -890,7 +894,7 @@ def ANN(
     final_model.fit(
         x_train,
         y_train,
-        validation_data=(x_test, y_test),
+        validation_data=(x_validation, y_validation),
         epochs=50,
         batch_size=best_params["batch_size"],
         verbose=0,
@@ -898,32 +902,33 @@ def ANN(
 
     final_model.save(save_dir / "ann_model.keras")
 
+    y_pred_prob_validation = final_model.predict(x_validation, verbose=0).flatten()
     y_pred_prob_test = final_model.predict(x_test, verbose=0).flatten()
-    y_pred_prob = final_model.predict(x_validation, verbose=0).flatten()
 
     performance = find_best_cutoff(
-        y_test_true=y_test,
-        y_test_pred_prob=y_pred_prob_test,
-        y_valid_true=y_validation,
-        y_valid_pred_prob=y_pred_prob,
+        # Select the cutoff on validation data, then evaluate metrics on test data.
+        y_validation,
+        y_pred_prob_validation,
+        y_test,
+        y_pred_prob_test,
     )
-    roc_auc = roc_auc_score(y_validation, y_pred_prob)
+    roc_auc = roc_auc_score(y_test, y_pred_prob_test)
 
     if make_plots:
-        save_roc_curve(y_validation, y_pred_prob, save_dir / "ROC_curve.jpg")
+        save_roc_curve(y_test, y_pred_prob_test, save_dir / "ROC_curve.jpg")
 
     importance = {}
 
-    return best_auc, float(roc_auc), best_params, y_pred_prob_test, y_pred_prob, performance, importance
+    return best_auc, float(roc_auc), best_params, y_pred_prob_validation, y_pred_prob_test, performance, importance
 
 
 def RNN(
     x_train,
     y_train,
-    x_test,
-    y_test,
     x_validation,
     y_validation,
+    x_test,
+    y_test,
     *,
     save_dir,
     random_state=123,
@@ -941,17 +946,17 @@ def RNN(
     tf.random.set_seed(random_state)
     np.random.seed(random_state)
 
-    x_train, x_test, x_validation = _one_hot_align(x_train, x_test, x_validation)
+    x_train, x_validation, x_test = _one_hot_align(x_train, x_validation, x_test)
 
     num_features = x_train.shape[1]
 
     x_train = np.asarray(x_train, dtype=np.float32).reshape((x_train.shape[0], 1, num_features))
-    x_test = np.asarray(x_test, dtype=np.float32).reshape((x_test.shape[0], 1, num_features))
     x_validation = np.asarray(x_validation, dtype=np.float32).reshape((x_validation.shape[0], 1, num_features))
+    x_test = np.asarray(x_test, dtype=np.float32).reshape((x_test.shape[0], 1, num_features))
 
     y_train = np.asarray(y_train, dtype=np.float32)
-    y_test = np.asarray(y_test, dtype=np.float32)
     y_validation = np.asarray(y_validation, dtype=np.float32)
+    y_test = np.asarray(y_test, dtype=np.float32)
 
     hidden_units_list = [32]#, 128
     hidden_layers_list = [1]#, 3
@@ -999,25 +1004,25 @@ def RNN(
                     model.fit(
                         x_train,
                         y_train,
-                        validation_data=(x_test, y_test),
+                        validation_data=(x_validation, y_validation),
                         epochs=10,
                         batch_size=batch_size,
                         verbose=0,
                     )
 
-                    y_pred_prob_test = model.predict(x_test, verbose=0).flatten()
-                    auc_test = roc_auc_score(y_test, y_pred_prob_test)
+                    y_pred_prob_validation = model.predict(x_validation, verbose=0).flatten()
+                    auc_validation = roc_auc_score(y_validation, y_pred_prob_validation)
 
                     param_list.append({
                         "hidden_units": hidden_units,
                         "hidden_layers": hidden_layers,
                         "learning_rate": learning_rate,
                         "batch_size": batch_size,
-                        "AUC": float(auc_test),
+                        "AUC": float(auc_validation),
                     })
 
-                    if auc_test > best_auc:
-                        best_auc = float(auc_test)
+                    if auc_validation > best_auc:
+                        best_auc = float(auc_validation)
                         best_params = {
                             "hidden_units": hidden_units,
                             "hidden_layers": hidden_layers,
@@ -1066,7 +1071,7 @@ def RNN(
     final_model.fit(
         x_train,
         y_train,
-        validation_data=(x_test, y_test),
+        validation_data=(x_validation, y_validation),
         epochs=10,
         batch_size=best_params["batch_size"],
         verbose=0,
@@ -1074,23 +1079,24 @@ def RNN(
 
     final_model.save(save_dir / "rnn_model.keras")
 
+    y_pred_prob_validation = final_model.predict(x_validation, verbose=0).flatten()
     y_pred_prob_test = final_model.predict(x_test, verbose=0).flatten()
-    y_pred_prob = final_model.predict(x_validation, verbose=0).flatten()
 
     performance = find_best_cutoff(
-        y_test_true=y_test,
-        y_test_pred_prob=y_pred_prob_test,
-        y_valid_true=y_validation,
-        y_valid_pred_prob=y_pred_prob,
+        # Select the cutoff on validation data, then evaluate metrics on test data.
+        y_validation,
+        y_pred_prob_validation,
+        y_test,
+        y_pred_prob_test,
     )
-    roc_auc = roc_auc_score(y_validation, y_pred_prob)
+    roc_auc = roc_auc_score(y_test, y_pred_prob_test)
 
     if make_plots:
-        save_roc_curve(y_validation, y_pred_prob, save_dir / "ROC_curve.jpg")
+        save_roc_curve(y_test, y_pred_prob_test, save_dir / "ROC_curve.jpg")
 
     importance = {}
 
-    return best_auc, float(roc_auc), best_params, y_pred_prob_test, y_pred_prob, performance, importance
+    return best_auc, float(roc_auc), best_params, y_pred_prob_validation, y_pred_prob_test, performance, importance
 
 
 MODEL_REGISTRY = {
