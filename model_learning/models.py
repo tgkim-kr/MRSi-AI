@@ -414,6 +414,7 @@ def XGB(
                                     "reg_alpha": reg_alpha,
                                     "objective": "binary:logistic",
                                     "eval_metric": "auc",
+                                    "early_stopping_rounds": 10,
                                     "enable_categorical": True,
                                     "tree_method": "hist",
                                     "random_state": random_state,
@@ -835,7 +836,14 @@ def ANN(
                     model.compile(
                         optimizer=Adam(learning_rate=learning_rate),
                         loss="binary_crossentropy",
-                        metrics=["AUC"],
+                    )
+
+                    early_stopping = tf.keras.callbacks.EarlyStopping(
+                        monitor="val_loss",
+                        mode="min",
+                        patience=3,
+                        restore_best_weights=True,
+                        verbose=0,
                     )
 
                     model.fit(
@@ -844,6 +852,7 @@ def ANN(
                         validation_data=(x_validation, y_validation),
                         epochs=50,
                         batch_size=batch_size,
+                        callbacks=[early_stopping],
                         verbose=0,
                     )
 
@@ -888,7 +897,14 @@ def ANN(
     final_model.compile(
         optimizer=Adam(learning_rate=best_params["learning_rate"]),
         loss="binary_crossentropy",
-        metrics=["AUC"],
+    )
+
+    final_early_stopping = tf.keras.callbacks.EarlyStopping(
+        monitor="val_loss",
+        mode="min",
+        patience=3,
+        restore_best_weights=True,
+        verbose=0,
     )
 
     final_model.fit(
@@ -897,6 +913,7 @@ def ANN(
         validation_data=(x_validation, y_validation),
         epochs=50,
         batch_size=best_params["batch_size"],
+        callbacks=[final_early_stopping],
         verbose=0,
     )
 
@@ -998,15 +1015,23 @@ def RNN(
                     model.compile(
                         optimizer=Adam(learning_rate=learning_rate),
                         loss="binary_crossentropy",
-                        metrics=["AUC"],
+                    )
+
+                    early_stopping = tf.keras.callbacks.EarlyStopping(
+                        monitor="val_loss",
+                        mode="min",
+                        patience=3,
+                        restore_best_weights=True,
+                        verbose=0,
                     )
 
                     model.fit(
                         x_train,
                         y_train,
                         validation_data=(x_validation, y_validation),
-                        epochs=10,
+                        epochs=30,
                         batch_size=batch_size,
+                        callbacks=[early_stopping],
                         verbose=0,
                     )
 
@@ -1065,15 +1090,23 @@ def RNN(
     final_model.compile(
         optimizer=Adam(learning_rate=best_params["learning_rate"]),
         loss="binary_crossentropy",
-        metrics=["AUC"],
+    )
+
+    final_early_stopping = tf.keras.callbacks.EarlyStopping(
+        monitor="val_loss",
+        mode="min",
+        patience=3,
+        restore_best_weights=True,
+        verbose=0,
     )
 
     final_model.fit(
         x_train,
         y_train,
         validation_data=(x_validation, y_validation),
-        epochs=10,
+        epochs=30,
         batch_size=best_params["batch_size"],
+        callbacks=[final_early_stopping],
         verbose=0,
     )
 
