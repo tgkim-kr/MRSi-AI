@@ -112,7 +112,7 @@ def parse_args() -> argparse.Namespace:
         "--sampling",
         default="none",
         choices=["none", "over"],
-        help="Sampling strategy passed to data_split. Default: over.",
+        help="Sampling strategy passed to data_split. Default: none.",
     )
     parser.add_argument(
         "--n-jobs",
@@ -194,8 +194,8 @@ def main() -> None:
     if not summary_df.empty:
         best_row = summary_df.iloc[0]
         print(
-            "Best validation AUC: "
-            f"{best_row['auc_validation']} "
+            "Best test AUC: "
+            f"{best_row['auc_test']} "
             f"({best_row['feature_set']} / {best_row['pca_mode']} / {best_row['model']})"
         )
 
