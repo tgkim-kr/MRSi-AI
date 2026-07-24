@@ -114,7 +114,7 @@ The workflow is:
   - Add an ensemble model based on averaged predicted probabilities from the selected models.
   - Save metrics, plots, selected hyperparameters, model artifacts, and summary files.
 
-<img width="5005" height="5310" alt="flow" src="https://github.com/user-attachments/assets/3131755e-eb8b-4be8-bcbd-0e40b3fe1bce" />
+<img width="5790" height="5325" alt="flowchart_sup" src="https://github.com/user-attachments/assets/8c212e57-76b8-46ef-99b6-4d5cf92c59ea" />
 
 ---
 
@@ -531,8 +531,7 @@ result = run_experiment(
 
 - The original cohort data are not distributed with this repository.
 - Synthetic files in `input_data/` are provided only for pipeline testing and do not reproduce the study results.
-- Full end-to-end reproduction of the study results requires authorized access to the original data and data specification.
+- Full reproduction of the study results requires access to the original data and the corresponding data specifications. Access to the original ASAS cohort data may be obtained from the Korea Disease Control and Prevention Agency (KDCA)
 - The default preprocessing behavior reproduces the original notebook-style missing-value handling. For leakage-free imputation workflows, use `--no-impute` and perform imputation after participant-level splitting.
 - The model-learning pipeline removes columns containing `ins`, `glu`, or `hba1c` by default.
 - XGBoost tree visualization can be slow and is disabled by default. Use `--save-xgb-trees` only when tree images are required.
-- SHAP analysis can increase runtime. Use `--no-shap` to disable it.
