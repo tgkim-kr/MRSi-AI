@@ -535,6 +535,7 @@ result = run_experiment(
 - The model-learning pipeline removes columns containing `ins`, `glu`, or `hba1c` by default.
 - XGBoost tree visualization can be slow and is disabled by default. Use `--save-xgb-trees` only when tree images are required.
 
+---
 
 ## 12. Data Availability
 
