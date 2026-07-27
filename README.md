@@ -531,7 +531,17 @@ result = run_experiment(
 
 - The original cohort data are not distributed with this repository.
 - Synthetic files in `input_data/` are provided only for pipeline testing and do not reproduce the study results.
-- Full reproduction of the study results requires access to the original data and the corresponding data specifications. Access to the original ASAS cohort data may be obtained from the Korea Disease Control and Prevention Agency (KDCA)
 - The default preprocessing behavior reproduces the original notebook-style missing-value handling. For leakage-free imputation workflows, use `--no-impute` and perform imputation after participant-level splitting.
 - The model-learning pipeline removes columns containing `ins`, `glu`, or `hba1c` by default.
 - XGBoost tree visualization can be slow and is disabled by default. Use `--save-xgb-trees` only when tree images are required.
+
+
+## 12. Data Availability
+
+The individual-level data used in this study are from the Korean Genome and Epidemiology Study (KoGES) Ansan–Ansung (ASAS) cohort and cannot be redistributed through this repository under the data protection regulations of the Korea Disease Control and Prevention Agency (KDCA).
+
+Full reproduction of the reported results requires (i) the original ASAS dataset and (ii) the corresponding data specification (codebook). Both can be requested from the KDCA (https://www.kdca.go.kr/) through its standard data-use application and approval procedure.
+
+This repository provides the analysis code together with a small dummy dataset that mirrors the variable structure of the original data. The dummy dataset is intended only to verify that the code runs and to illustrate the analytic workflow; it does not reflect the sample size or distributions of the original data, and outputs generated from it will not match the results reported in the paper.
+
+Numerical reproduction of the published results is possible only with access to the original data obtained through the procedure described above.
