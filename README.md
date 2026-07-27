@@ -539,10 +539,10 @@ result = run_experiment(
 
 ## 12. Data Availability
 
-The individual-level data used in this study are from the Korean Genome and Epidemiology Study (KoGES) Ansan–Ansung (ASAS) cohort and cannot be redistributed through this repository under the data protection regulations of the Korea Disease Control and Prevention Agency (KDCA).
+ The individual-level data used in this study are from the Korean Genome and Epidemiology Study (KoGES) Ansan–Ansung (ASAS) cohort and cannot be redistributed through this repository under the data protection regulations of the Korea Disease Control and Prevention Agency (KDCA).
 
-Full reproduction of the reported results requires (i) the original ASAS dataset and (ii) the corresponding data specification (codebook). Both can be requested from the KDCA (https://www.kdca.go.kr/) through its standard data-use application and approval procedure.
+ Full reproduction of the reported results requires (i) the original ASAS dataset and (ii) the corresponding data specification (codebook). Both can be requested from the KDCA (https://www.kdca.go.kr/) through its standard data-use application and approval procedure.
 
-This repository provides the analysis code together with a small dummy dataset that mirrors the variable structure of the original data. The dummy dataset is intended only to verify that the code runs and to illustrate the analytic workflow; it does not reflect the sample size or distributions of the original data, and outputs generated from it will not match the results reported in the paper.
+ This repository provides the analysis code together with a small dummy dataset that mirrors the variable structure of the original data. The dummy dataset is intended only to verify that the code runs and to illustrate the analytic workflow; it does not reflect the sample size or distributions of the original data, and outputs generated from it will not match the results reported in the paper.
 
-Numerical reproduction of the published results is possible only with access to the original data obtained through the procedure described above.
+ Numerical reproduction of the published results is possible only with access to the original data obtained through the procedure described above.
