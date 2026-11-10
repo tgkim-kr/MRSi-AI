@@ -119,88 +119,91 @@ def feature_selection(data: pd.DataFrame, feature_: str) -> pd.DataFrame:
     return data.drop(columns=_existing_columns(data, drop_cols))
 
 
-def apply_pca(df: pd.DataFrame, prefix: str, max_components: int = 10) -> pd.DataFrame:
+def apply_pca(
+    train_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    validation_df: pd.DataFrame,
+    prefix: str,
+    max_components: int = 10,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
-    Fit PCA to a feature block and return principal-component columns.
+    Fit StandardScaler/PCA on TRAIN only, then transform all three splits.
 
-    The number of components is the smaller of:
-    - `max_components`
-    - the minimum number of components explaining at least 90% variance
-    - the number of available input columns/samples
-
-    Parameters
-    ----------
-    df:
-        Numeric dataframe for one feature block.
-
-    prefix:
-        Prefix used for PCA column names.
-
-    max_components:
-        Maximum number of PCA components.
-
-    Returns
-    -------
-    pandas.DataFrame
-        PCA-transformed dataframe with the same index as `df`.
+    The number of components is selected using TRAIN explained variance only:
+    the first components covering at least 90% variance, up to max_components.
+    If 90% cannot be reached within the maximum, keep all allowed components.
     """
-    if df.empty:
-        return pd.DataFrame(index=df.index)
+    if train_df.shape[1] == 0:
+        return tuple(pd.DataFrame(index=df.index) for df in (train_df, test_df, validation_df))
 
-    df_numeric = df.apply(pd.to_numeric, errors="coerce")
+    # The same feature columns, in the same order, must be used at inference time.
+    cols = list(train_df.columns)
+    for split_name, df in (("test", test_df), ("validation", validation_df)):
+        if list(df.columns) != cols:
+            raise ValueError(f"PCA input columns differ between train and {split_name}.")
 
-    if df_numeric.isna().any().any():
-        raise ValueError(
-            f"PCA input for '{prefix}' contains missing or non-numeric values. "
-            "Run imputation before PCA or set pca mode to 'none'."
-        )
+    numeric_blocks = []
+    for split_name, df in (
+        ("train", train_df),
+        ("test", test_df),
+        ("validation", validation_df),
+    ):
+        numeric = df.apply(pd.to_numeric, errors="coerce")
+        if numeric.isna().any().any() or not np.isfinite(numeric.to_numpy(dtype=float)).all():
+            raise ValueError(
+                f"PCA input for '{prefix}' in {split_name} contains missing, "
+                "non-numeric, or infinite values. Handle them before PCA."
+            )
+        numeric_blocks.append(numeric)
 
-    n_samples, n_features = df_numeric.shape
+    n_samples, n_features = train_df.shape
     max_allowed_components = min(max_components, n_samples, n_features)
+    if n_samples < 2 or max_allowed_components < 1:
+        raise ValueError(f"Not enough training samples/features for PCA group '{prefix}'.")
 
-    if max_allowed_components < 1:
-        return pd.DataFrame(index=df.index)
-
+    # Both fit operations use TRAIN only; test/validation use transform only.
     scaler = StandardScaler()
-    df_scaled = scaler.fit_transform(df_numeric)
+    train_scaled = scaler.fit_transform(numeric_blocks[0])
+    test_scaled = scaler.transform(numeric_blocks[1])
+    validation_scaled = scaler.transform(numeric_blocks[2])
 
-    pca_full = PCA(n_components=max_allowed_components)
-    pca_full.fit(df_scaled)
+    pca = PCA(n_components=max_allowed_components)
+    train_components = pca.fit_transform(train_scaled)
+    test_components = pca.transform(test_scaled)
+    validation_components = pca.transform(validation_scaled)
 
-    explained_variance = np.cumsum(pca_full.explained_variance_ratio_)
-    n_components_90 = int(np.argmax(explained_variance >= 0.9) + 1)
-    n_components = min(max_allowed_components, n_components_90)
-
-    pca = PCA(n_components=n_components)
-    principal_components = pca.fit_transform(df_scaled)
-
+    cumulative_variance = np.cumsum(pca.explained_variance_ratio_)
+    if not np.isfinite(cumulative_variance).all():
+        raise ValueError(f"PCA explained variance is undefined for group '{prefix}'.")
+    n_components = min(
+        max_allowed_components,
+        int(np.searchsorted(cumulative_variance, 0.90, side="left") + 1),
+    )
     pca_columns = [f"{prefix}_pca_{i + 1}" for i in range(n_components)]
 
-    return pd.DataFrame(principal_components, columns=pca_columns, index=df.index)
+    return tuple(
+        pd.DataFrame(values[:, :n_components], columns=pca_columns, index=df.index)
+        for values, df in zip(
+            (train_components, test_components, validation_components),
+            (train_df, test_df, validation_df),
+        )
+    )
 
 
-def pca_df(data: pd.DataFrame, pca_: str, features_: str) -> pd.DataFrame:
+def pca_df(
+    train: pd.DataFrame,
+    test: pd.DataFrame,
+    validation: pd.DataFrame,
+    pca_: str,
+    features_: str,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
-    Add or replace feature groups with PCA-derived components.
+    Fit PCA for selected feature groups on TRAIN, then transform TEST/VALIDATION.
 
-    Parameters
-    ----------
-    data:
-        Input dataframe after feature-set selection.
+    pca_: "none" (unchanged), "plus" (append PCs), or "only" (replace originals).
+    features_: "all", "bio", "physical", "life", or "Non_invasive".
 
-    pca_:
-        PCA mode. Supported values are:
-        - "none": return data unchanged
-        - "plus": append PCA columns while keeping original columns
-        - "only": replace the selected feature groups with PCA columns
-
-    features_:
-        Feature-set name used to determine which feature blocks are transformed.
-
-    Returns
-    -------
-    pandas.DataFrame
-        Dataframe with PCA columns added or substituted.
+    Apply only *after* participant-level train/test/validation splitting.
     """
     if pca_ not in {"none", "plus", "only"}:
         raise ValueError("pca_ must be one of 'none', 'plus', or 'only'.")
@@ -211,13 +214,9 @@ def pca_df(data: pd.DataFrame, pca_: str, features_: str) -> pd.DataFrame:
             f"Supported values are {list(FEATURE_GROUPS)}."
         )
 
-    data = data.copy()
-
+    splits = [train.copy(), test.copy(), validation.copy()]
     if pca_ == "none":
-        return data
-
-    pca_blocks: list[pd.DataFrame] = []
-    drop_cols: list[str] = []
+        return tuple(splits)
 
     if features_ == "all":
         groups_to_transform = {
@@ -228,28 +227,40 @@ def pca_df(data: pd.DataFrame, pca_: str, features_: str) -> pd.DataFrame:
     else:
         groups_to_transform = {features_: FEATURE_GROUPS[features_]}
 
-    for prefix, columns in groups_to_transform.items():
-        cols = _existing_columns(data, columns)
+    pca_blocks = [[], [], []]
+    drop_cols = []
 
+    for prefix, columns in groups_to_transform.items():
+        cols = _existing_columns(splits[0], columns)
         if not cols:
             continue
 
-        pca_blocks.append(apply_pca(data[cols], prefix=prefix))
+        for split_name, split_df in zip(("test", "validation"), splits[1:]):
+            missing_cols = set(cols) - set(split_df.columns)
+            if missing_cols:
+                raise ValueError(f"{split_name} is missing PCA columns: {sorted(missing_cols)}")
+
+        transformed = apply_pca(
+            splits[0][cols], splits[1][cols], splits[2][cols], prefix=prefix
+        )
+        for i, block in enumerate(transformed):
+            pca_blocks[i].append(block)
 
         if pca_ == "only":
             drop_cols.extend(cols)
 
-    if pca_ == "only" and drop_cols:
-        data = data.drop(columns=drop_cols)
+    result = []
+    for df, blocks in zip(splits, pca_blocks):
+        if pca_ == "only" and drop_cols:
+            df = df.drop(columns=drop_cols)
+        if blocks:
+            df = pd.concat([df, *blocks], axis=1)
+        result.append(df)
 
-    if pca_blocks:
-        df_pca = pd.concat(pca_blocks, axis=1)
-        data = pd.concat([data, df_pca], axis=1)
-
-    return data
+    return tuple(result)
 
 
-def data_split(data_input, sampling):
+def data_split(data_input, sampling, pca_: str = "none", features_: str = "all"):
     """
     Split the input dataframe into train, test, and validation sets using
     participant-level splitting based on the `rid` column.
@@ -273,6 +284,14 @@ def data_split(data_input, sampling):
         Sampling strategy.
         - "over": oversample positive-class rows within each split
         - Any other value: no resampling
+
+    pca_ : str
+        "none", "plus", or "only". PCA is fitted on training data only.
+
+    features_ : str
+        Feature group to which PCA is applied, such as "all" or "bio".
+        Perform feature_selection(data_input, features_) before calling
+        data_split when feature selection is needed.
 
     Returns
     -------
@@ -562,6 +581,15 @@ def data_split(data_input, sampling):
     validation = data_input[data_input["rid"].isin(validation_rids)].copy()
 
     # ------------------------------------------------------------------
+    # Fit StandardScaler + PCA on unsampled TRAIN data ONLY, and transform
+    # TEST/VALIDATION with that same fitted transformation. This must happen
+    # after RID splitting to avoid information leakage.
+    # ------------------------------------------------------------------
+    train, test, validation = pca_df(
+        train, test, validation, pca_=pca_, features_=features_
+    )
+
+    # ------------------------------------------------------------------
     # Optional oversampling.
     # The oversampling is performed within each split only, so it does not
     # introduce RID leakage across train, test, and validation sets.
@@ -579,11 +607,6 @@ def data_split(data_input, sampling):
             random_state=random_state,
         )
 
-        validation = oversample_positive(
-            validation,
-            n_positive=oversampling_targets["validation"],
-            random_state=random_state,
-        )
 
     # ------------------------------------------------------------------
     # Shuffle each split and reset indices.
