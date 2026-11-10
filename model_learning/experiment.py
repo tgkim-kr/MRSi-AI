@@ -87,15 +87,13 @@ def prepare_combo_data(
     data_ori_: pd.DataFrame,
     sampling_method: str,
 ):
-    """
-    Prepare train/validation/test matrices for one feature/PCA combination.
-    """
     data_tmp = feature_selection(data_ori_.copy(), features_name)
-    data_tmp = pca_df(data_tmp, pca_name, features_name)
 
-    x_train, y_train, x_validation, y_validation, x_test, y_test = data_split(
+    x_train, y_train, x_test, y_test, x_validation, y_validation = data_split(
         data_tmp,
         sampling_method,
+        pca_=pca_name,
+        features_=features_name,
     )
 
     return x_train, y_train, x_validation, y_validation, x_test, y_test
